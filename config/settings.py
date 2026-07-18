@@ -47,7 +47,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
 
     'rest_framework_simplejwt.token_blacklist',   # 로그아웃(토큰 무효화)용
-    'accounts',                                    # 우리 앱
+    'users',                                    # 우리 앱
     'pets',    
 ]
 
@@ -150,7 +150,7 @@ CORS_ALLOWED_ORIGINS = config(
 
 from datetime import timedelta
 
-AUTH_USER_MODEL = "accounts.User"          # 커스텀 User 사용 선언 (제일 중요!)
+AUTH_USER_MODEL = "users.User"          # 커스텀 User 사용 선언 (제일 중요!)
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (

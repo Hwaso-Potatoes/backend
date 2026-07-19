@@ -48,7 +48,8 @@ INSTALLED_APPS = [
 
     'rest_framework_simplejwt.token_blacklist',   # 로그아웃(토큰 무효화)용
     'users',                                    # 우리 앱
-    'pets',    
+    'pets', 
+    'friends',
 ]
 
 MIDDLEWARE = [

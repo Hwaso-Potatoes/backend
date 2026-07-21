@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'users',                                    # 우리 앱
     'pets', 
     'friends',
+    'missions',
 ]
 
 MIDDLEWARE = [

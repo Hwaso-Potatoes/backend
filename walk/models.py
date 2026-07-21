@@ -8,7 +8,7 @@ class WalkingSession(models.Model):
         ('FINISHED', '산책 종료'),
     ]
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='walking_sessions')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='walking_sessions', null=True, blank=True)
     start_time = models.DateTimeField(auto_now_add=True)
     end_time = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='WALKING')
@@ -25,7 +25,7 @@ class WalkingSession(models.Model):
     is_location_shared = models.BooleanField(default=True)
 
     def __str__(self):
-        return f"{self.user.username}의 산책 ({self.start_time.strftime('%Y-%m-%d')})"
+        return f"{self.user.email}의 산책 ({self.start_time.strftime('%Y-%m-%d')})"
 
 class WalkingPath(models.Model):
     session = models.ForeignKey(WalkingSession, on_delete=models.CASCADE, related_name='paths')

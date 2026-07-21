@@ -160,6 +160,7 @@ CHANNEL_LAYERS = {
             "hosts": [('127.0.0.1', 6379)],
         },
     },
+}
 from datetime import timedelta
 
 AUTH_USER_MODEL = "users.User"          # 커스텀 User 사용 선언 (제일 중요!)

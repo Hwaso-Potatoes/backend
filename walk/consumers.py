@@ -1,7 +1,8 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
-from .models import WalkingSession, LocationPoint
+from .models import WalkingSession, WalkingPath
+
 
 class WalkConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -50,10 +51,11 @@ class WalkConsumer(AsyncWebsocketConsumer):
     def save_location(self, latitude, longitude):
         try:
             session = WalkingSession.objects.get(id=self.walk_id)
-            LocationPoint.objects.create(
+            WalkingPath.objects.create(
                 session=session,
                 latitude=latitude,
                 longitude=longitude
             )
         except WalkingSession.DoesNotExist:
             pass
+        

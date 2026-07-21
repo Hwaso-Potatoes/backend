@@ -43,9 +43,9 @@ class WalkEndView(APIView):
         total_delta = session.end_time - session.start_time
         total_seconds = total_delta.total_seconds()
         
-        # 일시정지 누적 시간(paused_time)이 있다면 초 단위로 빼줌
+        # 일시정지 누적 시간(paused_time) 차감
         if session.paused_time:
-            total_seconds -= session.paused_time.total_seconds()
+            total_seconds -= session.paused_time()
             
         session.total_duration = max(0, int(total_seconds // 60))
 

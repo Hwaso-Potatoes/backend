@@ -35,23 +35,16 @@ ALLOWED_HOSTS = config(
 # Application definition
 
 INSTALLED_APPS = [
-    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'channels',
-    'walk',
 
     'rest_framework',
     'corsheaders',
     'drf_spectacular',
-
-    'rest_framework_simplejwt.token_blacklist',   # 로그아웃(토큰 무효화)용
-    'users',                                    # 우리 앱
-    'pets',    
 ]
 
 MIDDLEWARE = [
@@ -150,30 +143,3 @@ CORS_ALLOWED_ORIGINS = config(
     default='http://localhost:3000,http://127.0.0.1:3000',
     cast=Csv()
 )
-
-ASGI_APPLICATION = 'config.asgi.application'
-
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            "hosts": [('127.0.0.1', 6379)],
-        },
-    },
-from datetime import timedelta
-
-AUTH_USER_MODEL = "users.User"          # 커스텀 User 사용 선언 (제일 중요!)
-
-REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-    ),
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-}
-
-SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),   # 접속용 토큰: 30분
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),      # 갱신용 토큰: 7일
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
-}

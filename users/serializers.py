@@ -59,3 +59,13 @@ class LogoutSerializer(serializers.Serializer):
 
     def save(self, **kwargs):
         self.refresh_token.blacklist()
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, validators=[validate_password])

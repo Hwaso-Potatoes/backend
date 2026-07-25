@@ -1,9 +1,10 @@
 from rest_framework import serializers
-from .models import Dog
+from .models import Pet
 
 
-class DogSerializer(serializers.ModelSerializer):
+class PetSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Dog
-        fields = ["id", "name", "breed", "birth_date", "created_at"]
-        read_only_fields = ["id", "created_at"]
+        model = Pet
+        fields = ["id", "name", "breed", "birth_date", "profile_image",
+                  "level", "experience", "created_at", "updated_at"]
+        read_only_fields = ["id", "level", "experience", "created_at", "updated_at"]

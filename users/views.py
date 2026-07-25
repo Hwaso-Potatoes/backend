@@ -7,12 +7,9 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .serializers import LogoutSerializer, RegisterSerializer, DetailSerializer, UpdateSerializer
-from django.contrib.auth.tokens import default_token_generator
-from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
-from django.utils.encoding import force_bytes, force_str
-from django.core.mail import send_mail
 from drf_spectacular.utils import extend_schema
-from .serializers import PasswordResetRequestSerializer, PasswordResetConfirmSerializer
+from .serializers import PasswordChangeSerializer
+from .serializers import EmailChangeSerializer
 
 User = get_user_model()
 
@@ -196,56 +193,41 @@ class LogoutView(APIView):
             status=status.HTTP_204_NO_CONTENT,
         )
     
-class PasswordResetRequestView(APIView):
-    
-    permission_classes = [permissions.AllowAny]
+class PasswordResetView(APIView):
+    """비밀번호 재설정 (로그인 상태, 기존 비번 확인 후 변경)"""
+    permission_classes = [permissions.IsAuthenticated]
 
-    @extend_schema(request=PasswordResetRequestSerializer, responses={200: None})
+    @extend_schema(request=PasswordChangeSerializer, responses={200: None})
     def post(self, request):
-        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer = PasswordChangeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data["email"]
-
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            
-            return Response({"detail": "비밀번호 재설정 메일을 보냈습니다."})
-
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = default_token_generator.make_token(user)
-        reset_link = f"http://localhost:3000/reset-password?uid={uid}&token={token}"
-
-        send_mail(
-            subject="[멍멍산책] 비밀번호 재설정",
-            message=f"아래 링크에서 비밀번호를 재설정하세요:\n{reset_link}\n\n(uid: {uid} / token: {token})",
-            from_email=None,
-            recipient_list=[email],
-        )
-        return Response({"detail": "비밀번호 재설정 메일을 보냈습니다."})
+        user = request.user
 
 
-class PasswordResetConfirmView(APIView):
-    
-    permission_classes = [permissions.AllowAny]
+        if not user.check_password(serializer.validated_data["old_password"]):
+            return Response({"old_password": "기존 비밀번호가 올바르지 않습니다."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-    @extend_schema(request=PasswordResetConfirmSerializer, responses={200: None})
-    def post(self, request):
-        serializer = PasswordResetConfirmSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        uid = serializer.validated_data["uid"]
-        token = serializer.validated_data["token"]
-        new_password = serializer.validated_data["new_password"]
-
-        try:
-            user_pk = force_str(urlsafe_base64_decode(uid))
-            user = User.objects.get(pk=user_pk)
-        except (User.DoesNotExist, ValueError, TypeError):
-            return Response({"detail": "유효하지 않은 요청입니다."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not default_token_generator.check_token(user, token):
-            return Response({"detail": "토큰이 유효하지 않거나 만료되었습니다."}, status=status.HTTP_400_BAD_REQUEST)
-
-        user.set_password(new_password)
+        user.set_password(serializer.validated_data["new_password"])
         user.save()
         return Response({"detail": "비밀번호가 변경되었습니다."})
+    
+class EmailChangeView(APIView):
+    """이메일 변경 (로그인 상태)"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(request=EmailChangeSerializer, responses={200: None})
+    def post(self, request):
+        serializer = EmailChangeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_email = serializer.validated_data["email"]
+        user = request.user
+
+    
+        if User.objects.exclude(pk=user.pk).filter(email=new_email).exists():
+            return Response({"email": "이미 사용 중인 이메일입니다."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        user.email = new_email
+        user.save()
+        return Response({"detail": "이메일이 변경되었습니다.", "email": new_email})

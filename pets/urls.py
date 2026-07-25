@@ -1,7 +1,7 @@
-from rest_framework.routers import DefaultRouter
-from .views import DogViewSet
+from django.urls import path
+from .views import PetListCreateView, PetDetailView
 
-router = DefaultRouter()
-router.register("pets", DogViewSet, basename="pet")
-
-urlpatterns = router.urls
+urlpatterns = [
+    path("pets/", PetListCreateView.as_view(), name="pet-list"),
+    path("pets/<int:pk>/", PetDetailView.as_view(), name="pet-detail"),
+]

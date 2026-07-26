@@ -49,8 +49,8 @@ INSTALLED_APPS = [
     'corsheaders',
     'drf_spectacular',
 
-    'rest_framework_simplejwt.token_blacklist',   # 로그아웃(토큰 무효화)용
-    'users',                                    # 우리 앱
+    'rest_framework_simplejwt.token_blacklist',   
+    'users',                                   
     'pets',    
 ]
 
@@ -163,7 +163,7 @@ CHANNEL_LAYERS = {
 }
 from datetime import timedelta
 
-AUTH_USER_MODEL = "users.User"          # 커스텀 User 사용 선언 (제일 중요!)
+AUTH_USER_MODEL = "users.User"        
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -173,8 +173,13 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),   # 접속용 토큰: 30분
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),      # 갱신용 토큰: 7일
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),  
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),     
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
 }
+
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+

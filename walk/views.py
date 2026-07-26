@@ -50,6 +50,16 @@ class WalkStartView(APIView):
 class WalkStatusView(APIView):
     permission_classes = [IsAuthenticated]
 
+    # GET 메서드 추가: 단순 산책 세션 정보 및 거리/시간 조회
+    def get(self, request, walk_id):
+        try:
+            session = WalkingSession.objects.get(id=walk_id, user=request.user)
+        except WalkingSession.DoesNotExist:
+            return Response({"error": "존재하지 않거나 본인의 산책 세션이 아닙니다."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = WalkingSessionSerializer(session)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
     @transaction.atomic
     def patch(self, request, walk_id):
         try:

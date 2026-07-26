@@ -1,8 +1,14 @@
 from django.urls import path
-from . import views
+from .views import (
+    WalkStartView,
+    WalkStatusView,
+    WalkEndView,
+    WalkPathCreateView,
+)
 
 urlpatterns = [
-    path('start/', views.WalkStartView.as_view(), name='walk-start'),
-    path('<int:walk_id>/', views.WalkStatusView.as_view(), name='walk-status'),
-    path('<int:walk_id>/end/', views.WalkEndView.as_view(), name='walk-end'),
+    path('start/', WalkStartView.as_view(), name='walk-start'),
+    path('<int:walk_id>/', WalkStatusView.as_view(), name='walk-status'),
+    path('<int:walk_id>/end/', WalkEndView.as_view(), name='walk-end'),
+    path('<int:walk_id>/locations/', WalkPathCreateView.as_view(), name='walk-locations'),
 ]

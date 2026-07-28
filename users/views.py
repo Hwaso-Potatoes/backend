@@ -7,7 +7,9 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .serializers import LogoutSerializer, RegisterSerializer, DetailSerializer, UpdateSerializer
-
+from drf_spectacular.utils import extend_schema
+from .serializers import PasswordChangeSerializer
+from .serializers import EmailChangeSerializer
 
 User = get_user_model()
 
@@ -56,8 +58,9 @@ class DetailView(APIView):
             404: OpenApiResponse(description="사용자를 찾을 수 없음"),
         },
     )
-    def get(self, request, pk):
-        user = get_object_or_404(User, pk=pk)
+    
+    def get(self, request, user_id):
+        user = get_object_or_404(User, pk=user_id)
 
         serializer = DetailSerializer(user)
 
@@ -84,8 +87,8 @@ class DetailView(APIView):
             404: OpenApiResponse(description="사용자를 찾을 수 없음"),
         },
     )
-    def patch(self, request, pk):
-        user = get_object_or_404(User, pk=pk)
+    def patch(self, request, user_id):
+        user = get_object_or_404(User, pk=user_id)
 
         if request.user.pk != user.pk:
             return Response(
@@ -190,3 +193,36 @@ class LogoutView(APIView):
         return Response(
             status=status.HTTP_204_NO_CONTENT,
         )
+    
+class PasswordResetView(APIView):
+    """비밀번호 재설정 (새 비밀번호 두 번 입력)"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(request=PasswordChangeSerializer, responses={200: None})
+    def post(self, request):
+        serializer = PasswordChangeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = request.user
+        user.set_password(serializer.validated_data["new_password"])
+        user.save()
+        return Response({"detail": "비밀번호가 변경되었습니다."})
+    
+class EmailChangeView(APIView):
+    """이메일 변경 (로그인 상태)"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(request=EmailChangeSerializer, responses={200: None})
+    def post(self, request):
+        serializer = EmailChangeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_email = serializer.validated_data["email"]
+        user = request.user
+
+    
+        if User.objects.exclude(pk=user.pk).filter(email=new_email).exists():
+            return Response({"email": "이미 사용 중인 이메일입니다."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        user.email = new_email
+        user.save()
+        return Response({"detail": "이메일이 변경되었습니다.", "email": new_email})

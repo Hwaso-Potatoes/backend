@@ -3,5 +3,5 @@ from .views import PetListCreateView, PetDetailView
 
 urlpatterns = [
     path("pets/", PetListCreateView.as_view(), name="pet-list"),
-    path("pets/<int:pk>/", PetDetailView.as_view(), name="pet-detail"),
+    path("pets/<int:pet_id>/", PetDetailView.as_view(), name="pet-detail"),
 ]

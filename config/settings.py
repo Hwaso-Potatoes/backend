@@ -35,12 +35,15 @@ ALLOWED_HOSTS = config(
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'channels',
+    'walk',
 
     'rest_framework',
     'corsheaders',
@@ -148,6 +151,15 @@ CORS_ALLOWED_ORIGINS = config(
     cast=Csv()
 )
 
+ASGI_APPLICATION = 'config.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": ["redis://127.0.0.1:6379/0"],        },
+    },
+}
 from datetime import timedelta
 
 AUTH_USER_MODEL = "users.User"        

@@ -59,3 +59,16 @@ class LogoutSerializer(serializers.Serializer):
 
     def save(self, **kwargs):
         self.refresh_token.blacklist()
+
+
+class PasswordChangeSerializer(serializers.Serializer):
+    new_password = serializers.CharField(write_only=True, validators=[validate_password])
+    new_password_confirm = serializers.CharField(write_only=True)
+
+    def validate(self, data):
+        if data["new_password"] != data["new_password_confirm"]:
+            raise serializers.ValidationError({"new_password_confirm": "새 비밀번호가 일치하지 않습니다."})
+        return data
+    
+class EmailChangeSerializer(serializers.Serializer):
+    email = serializers.EmailField()

@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 from decouple import config, Csv
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -35,20 +36,23 @@ ALLOWED_HOSTS = config(
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'channels',
+    'walk',
 
     'rest_framework',
     'corsheaders',
     'drf_spectacular',
-
-    'rest_framework_simplejwt.token_blacklist',   # 로그아웃(토큰 무효화)용
-    'users',                                    # 우리 앱
-    'pets', 
+      
+    'rest_framework_simplejwt.token_blacklist',
+    'users',
+    'pets',
     'friends',
     'missions',
 ]
@@ -131,13 +135,6 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-REST_FRAMEWORK = {
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.AllowAny',
-    ),
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-}
-
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Hwaso Backend API',
     'DESCRIPTION': '반려견 산책 기반 소셜 서비스 백엔드 API',
@@ -150,20 +147,36 @@ CORS_ALLOWED_ORIGINS = config(
     cast=Csv()
 )
 
-from datetime import timedelta
+ASGI_APPLICATION = 'config.asgi.application'
 
-AUTH_USER_MODEL = "users.User"          # 커스텀 User 사용 선언 (제일 중요!)
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": ["redis://127.0.0.1:6379/0"],        },
+    },
+}
+
+AUTH_USER_MODEL = "users.User"        
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.AllowAny",
+    ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),   # 접속용 토큰: 30분
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),      # 갱신용 토큰: 7일
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),  
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),     
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
 }
+
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+

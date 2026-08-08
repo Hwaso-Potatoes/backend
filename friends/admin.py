@@ -27,3 +27,8 @@ class FriendAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
+    list_select_related = (
+        "requester",
+        "receiver",
+    )
+    ordering = ("-created_at",)

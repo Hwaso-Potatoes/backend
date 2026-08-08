@@ -72,3 +72,7 @@ class PasswordChangeSerializer(serializers.Serializer):
     
 class EmailChangeSerializer(serializers.Serializer):
     email = serializers.EmailField()
+
+class SocialLoginSerializer(serializers.Serializer):
+    access_token = serializers.CharField(required=False, help_text="kakao/google용")
+    identity_token = serializers.CharField(required=False, help_text="apple용")

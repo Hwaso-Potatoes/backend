@@ -2,8 +2,22 @@ from django.db import models
 
 
 class Accessory(models.Model):
+    class Category(models.TextChoices):
+        HAIR = "HAIR", "헤어"
+        CAPE = "CAPE", "케이프"
+        CLOTHES = "CLOTHES", "옷"
+        SHOES = "SHOES", "신발"
+
     name = models.CharField(max_length=100)
-    image = models.ImageField(upload_to="accessories/")
+
+    image = models.ImageField(
+        upload_to="accessories/",
+    )
+
+    category = models.CharField(
+        max_length=10,
+        choices=Category.choices,
+    )
 
     def __str__(self):
         return self.name
@@ -15,13 +29,20 @@ class PetAccessory(models.Model):
         on_delete=models.CASCADE,
         related_name="pet_accessories",
     )
+
     accessory = models.ForeignKey(
         Accessory,
         on_delete=models.CASCADE,
         related_name="pet_accessories",
     )
-    is_equipped = models.BooleanField(default=False)
-    acquired_at = models.DateTimeField(auto_now_add=True)
+
+    is_equipped = models.BooleanField(
+        default=False,
+    )
+
+    acquired_at = models.DateTimeField(
+        auto_now_add=True,
+    )
 
     class Meta:
         constraints = [

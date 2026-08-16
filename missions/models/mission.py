@@ -9,54 +9,24 @@ class Mission(models.Model):
     class MissionType(models.TextChoices):
         TOTAL_DISTANCE = "TOTAL_DISTANCE", "누적 산책 거리"
         TOTAL_DURATION = "TOTAL_DURATION", "누적 산책 시간"
-        WALK_COUNT = "WALK_COUNT", "산책 완료 횟수"
-        WALK_DISTANCE_AT_LEAST = "WALK_DISTANCE_AT_LEAST", "일정 거리 이상 산책 횟수"
-        WALK_DURATION_AT_LEAST = "WALK_DURATION_AT_LEAST", "일정 시간 이상 산책 횟수"
-        DISTINCT_WALK_DAYS = "DISTINCT_WALK_DAYS", "산책한 날짜 수"
-        NEW_FRIEND_COUNT = "NEW_FRIEND_COUNT", "새로 추가한 친구 수"
+        WALK_COUNT = "WALK_COUNT", "산책 횟수"
+        WALK_DISTANCE_AT_LEAST = "WALK_DISTANCE_AT_LEAST", "1회 산책 거리"
+        WALK_DURATION_AT_LEAST = "WALK_DURATION_AT_LEAST", "1회 산책 시간"
+        DISTINCT_WALK_DAYS = "DISTINCT_WALK_DAYS", "산책 일수"
+        NEW_FRIEND_COUNT = "NEW_FRIEND_COUNT", "새 친구 수"
 
     title = models.CharField(max_length=100)
-
-    period = models.CharField(
-        max_length=10,
-        choices=Period.choices,
-    )
-
-    mission_type = models.CharField(
-        max_length=30,
-        choices=MissionType.choices,
-    )
-
-    # 거리 미션은 미터, 시간 미션은 초 단위
-    # 횟수만 필요한 미션에서는 null
+    period = models.CharField(choices=Period.choices)
+    mission_type = models.CharField(choices=MissionType.choices)
+    
     goal = models.PositiveIntegerField(
         null=True,
         blank=True,
     )
 
-    # 조건을 몇 번 달성해야 하는지
-    required_count = models.PositiveIntegerField(default=1)
-
-    reward_experience = models.PositiveIntegerField(default=0)
-
-    reward_badge = models.ForeignKey(
-        "Badge",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="reward_missions",
+    required_count = models.PositiveIntegerField(
+        default=1,
     )
-
-    reward_accessory = models.ForeignKey(
-        "Accessory",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="reward_missions",
-    )
-
-    def __str__(self):
-        return self.title
 
 
 class PetMission(models.Model):

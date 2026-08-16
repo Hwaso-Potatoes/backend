@@ -9,135 +9,92 @@ class MissionListQuerySerializer(serializers.Serializer):
     )
 
 
+class MissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Mission
+        fields = (
+            "id",
+            "title",
+            "period",
+            "mission_type",
+        )
+        read_only_fields = fields
+
+
 class MissionListSerializer(serializers.ModelSerializer):
-    pet_mission_id = serializers.IntegerField(
-        source="id",
-        read_only=True,
-    )
-    mission_id = serializers.IntegerField(
-        source="mission.id",
-        read_only=True,
-    )
     title = serializers.CharField(
         source="mission.title",
         read_only=True,
     )
-    period = serializers.CharField(
-        source="mission.period",
-        read_only=True,
-    )
-    mission_type = serializers.CharField(
-        source="mission.mission_type",
-        read_only=True,
-    )
-    goal = serializers.IntegerField(
-        source="mission.goal",
-        read_only=True,
-        allow_null=True,
-    )
-    required_count = serializers.IntegerField(
-        source="mission.required_count",
-        read_only=True,
-    )
-    reward_experience = serializers.IntegerField(
-        source="mission.reward_experience",
-        read_only=True,
-    )
 
-    reward_badge = serializers.SerializerMethodField()
-    reward_accessory = serializers.SerializerMethodField()
-    progress_percent = serializers.SerializerMethodField()
+    progress = serializers.SerializerMethodField()
+    can_claim = serializers.SerializerMethodField()
 
     class Meta:
         model = PetMission
         fields = (
-            "pet_mission_id",
-            "mission_id",
+            "id",
             "title",
-            "period",
-            "mission_type",
-            "goal",
-            "required_count",
-            "current_value",
-            "current_count",
-            "progress_percent",
+            "progress",
             "status",
-            "reward_experience",
-            "reward_badge",
-            "reward_accessory",
-            "period_start",
-            "period_end",
-            "completed_at",
-            "claimed_at",
+            "can_claim",
         )
         read_only_fields = fields
 
-    def get_progress_percent(self, obj):
-        count_based_types = {
-            Mission.MissionType.WALK_COUNT,
-            Mission.MissionType.WALK_DISTANCE_AT_LEAST,
-            Mission.MissionType.WALK_DURATION_AT_LEAST,
-            Mission.MissionType.DISTINCT_WALK_DAYS,
-            Mission.MissionType.NEW_FRIEND_COUNT,
-        }
+    def get_progress(self, obj):
+        mission_type = obj.mission.mission_type
 
-        if obj.mission.mission_type in count_based_types:
+        if mission_type == Mission.MissionType.WALK_COUNT:
             current = obj.current_count
             target = obj.mission.required_count
+            unit = "회"
+
+        elif mission_type == Mission.MissionType.DISTINCT_WALK_DAYS:
+            current = obj.current_count
+            target = obj.mission.required_count
+            unit = "일"
+
+        elif mission_type == Mission.MissionType.NEW_FRIEND_COUNT:
+            current = obj.current_count
+            target = obj.mission.required_count
+            unit = "명"
+
+        elif mission_type in (
+            Mission.MissionType.TOTAL_DISTANCE,
+            Mission.MissionType.WALK_DISTANCE_AT_LEAST,
+        ):
+            current = round(obj.current_value / 1000, 2)
+            target = round((obj.mission.goal or 0) / 1000, 2)
+            unit = "km"
+
+        elif mission_type in (
+            Mission.MissionType.TOTAL_DURATION,
+            Mission.MissionType.WALK_DURATION_AT_LEAST,
+        ):
+            current = round(obj.current_value / 60, 1)
+            target = round((obj.mission.goal or 0) / 60, 1)
+            unit = "분"
+
         else:
-            current = obj.current_value
-            target = obj.mission.goal
+            current = 0
+            target = 0
+            unit = ""
 
-        if not target:
-            return 0
-
-        return min(
-            100,
-            int(current / target * 100),
+        percent = (
+            min(100, int(current / target * 100))
+            if target > 0
+            else 0
         )
 
-    def get_reward_badge(self, obj):
-        badge = obj.mission.reward_badge
-
-        if badge is None:
-            return None
-
-        image_url = None
-
-        if badge.image:
-            request = self.context.get("request")
-
-            image_url = (
-                request.build_absolute_uri(badge.image.url)
-                if request
-                else badge.image.url
-            )
-
         return {
-            "id": badge.id,
-            "name": badge.name,
-            "image": image_url,
+            "current": current,
+            "target": target,
+            "unit": unit,
+            "percent": percent,
         }
 
-    def get_reward_accessory(self, obj):
-        accessory = obj.mission.reward_accessory
-
-        if accessory is None:
-            return None
-
-        image_url = None
-
-        if accessory.image:
-            request = self.context.get("request")
-
-            image_url = (
-                request.build_absolute_uri(accessory.image.url)
-                if request
-                else accessory.image.url
-            )
-
-        return {
-            "id": accessory.id,
-            "name": accessory.name,
-            "image": image_url,
-        }
+    def get_can_claim(self, obj):
+        return (
+            obj.status == PetMission.Status.CLAIMABLE
+            and obj.claimed_at is None
+        )

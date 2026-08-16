@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 
 from missions.models import PetMission
 from missions.serializers.mission import MissionListQuerySerializer, MissionListSerializer
+from missions.services.mission import claim_mission_reward
 from pets.models import Pet
 
 
@@ -50,7 +51,9 @@ class MissionListView(APIView):
         query_serializer = MissionListQuerySerializer(
             data=request.query_params,
         )
-        query_serializer.is_valid(raise_exception=True)
+        query_serializer.is_valid(
+            raise_exception=True,
+        )
 
         period = query_serializer.validated_data["period"]
         today = timezone.localdate()
@@ -65,10 +68,10 @@ class MissionListView(APIView):
             )
             .select_related(
                 "mission",
-                "mission__reward_badge",
-                "mission__reward_accessory",
             )
-            .order_by("mission_id")
+            .order_by(
+                "mission_id",
+            )
         )
 
         serializer = MissionListSerializer(
@@ -83,3 +86,40 @@ class MissionListView(APIView):
             serializer.data,
             status=status.HTTP_200_OK,
         )
+
+
+class MissionClaimView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        tags=["미션"],
+        summary="미션 보상 수령",
+        description=(
+            "완료한 미션의 보상으로 랜덤 액세서리를 수령합니다."
+        ),
+        request=None,
+        responses={
+            200: OpenApiResponse(description="보상 수령 성공"),
+            400: OpenApiResponse(description="보상을 받을 수 없는 미션"),
+            401: OpenApiResponse(description="인증 실패"),
+        },
+    )
+    def post(self, request, pet_id, pet_mission_id):
+        try:
+            result = claim_mission_reward(
+                pet_id=pet_id,
+                pet_mission_id=pet_mission_id,
+                user=request.user,
+            )
+        except ValueError as error:
+            return Response(
+                {
+                    "error": str(error),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            result,
+            status=status.HTTP_200_OK,
+        )       

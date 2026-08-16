@@ -3,16 +3,16 @@ from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
-
-    path('api/walks/', include('walk.urls')),
     path("admin/", admin.site.urls),
     path("api/users/", include("users.urls")),
-    path("api/friends/", include("friends.urls")),
+    path("api/pets/", include("pets.urls")),
     path("api/pets/", include("missions.urls")),    
+    path("api/pets/", include("walk.reports.urls")),
+    path("api/friends/", include("friends.urls")),
+    path('api/walks/', include('walk.urls')),
     
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
-    path("api/", include("pets.urls")),
 ]
 
 from django.conf import settings

@@ -11,6 +11,11 @@ from .serializers import (
     WalkingSessionSerializer, 
     WalkingPathBatchSerializer
 )
+from pets.services import add_experience
+from .services import calculate_walk_experience
+
+from missions.services.mission import update_walk_missions
+from missions.services.badge import check_first_walk_badge, check_total_distance_badges, check_total_duration_badges, check_daily_walk_count_badges, check_consecutive_days_badges, check_level_badges
 
 
 # [1. 산책 시작 API]
@@ -30,7 +35,7 @@ class WalkStartView(APIView):
                 "status": active_session.status
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        user_pet = getattr(request.user, 'pet', None)
+        user_pet = request.user.pets.first()
 
         session = WalkingSession.objects.create(
             user=request.user,
@@ -146,10 +151,50 @@ class WalkEndView(APIView):
         session.total_distance = round(session.total_distance, 2)
         session.save()
 
+        earned_experience = calculate_walk_experience(
+            session.total_distance
+        )
+
+        if session.pet:
+            previous_level = session.pet.level
+
+            add_experience(
+                pet=session.pet,
+                amount=earned_experience,
+            )
+
+            if session.pet.level > previous_level:
+                check_level_badges(
+                    pet=session.pet,
+                )
+
+            check_first_walk_badge(
+                pet=session.pet,
+            )
+
+            check_total_distance_badges(
+                pet=session.pet,
+            )
+
+            check_total_duration_badges(
+                pet=session.pet,
+            )
+
+            check_daily_walk_count_badges(
+                pet=session.pet,
+            )
+
+            check_consecutive_days_badges(
+                pet=session.pet,
+            )
+
+        update_walk_missions(session)
+
         # 응답 문자열 포맷팅
         serializer = WalkingSessionSerializer(session)
         return Response({
             "message": "산책이 성공적으로 종료되었습니다.",
+            "earned_experience": earned_experience,
             "data": serializer.data
         }, status=status.HTTP_200_OK)
 

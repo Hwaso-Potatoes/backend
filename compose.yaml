@@ -1,0 +1,15 @@
+services:
+  web:
+    build:
+      context: .
+    image: hwaso-potatoes-backend:dev
+    container_name: hwaso-potatoes-web
+
+    env_file:
+      - .env
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - .:/app

@@ -11,6 +11,16 @@ from drf_spectacular.utils import extend_schema
 from .serializers import PasswordChangeSerializer
 from .serializers import EmailChangeSerializer
 
+import requests
+from django.contrib.auth import get_user_model
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
+from .social import PROVIDERS
+from drf_spectacular.utils import extend_schema
+from .serializers import SocialLoginSerializer
+
 User = get_user_model()
 
 
@@ -226,3 +236,36 @@ class EmailChangeView(APIView):
         user.email = new_email
         user.save()
         return Response({"detail": "이메일이 변경되었습니다.", "email": new_email})
+
+class SocialLoginView(APIView):
+    """POST /api/users/social/<provider>/  (provider: kakao|google|apple)"""
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(request=SocialLoginSerializer, responses={200: None})   # ← 추가
+    def post(self, request, provider):
+        entry = PROVIDERS.get(provider)
+        if not entry:
+            return Response({"detail": "지원하지 않는 소셜입니다."}, status=status.HTTP_400_BAD_REQUEST)
+        token_field, get_user_info = entry
+
+        token = request.data.get(token_field)
+        if not token:
+            return Response({"detail": f"{token_field}가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            info = get_user_info(token)
+        except Exception:
+            return Response({"detail": "소셜 인증에 실패했습니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        email = info.get("email") or f"{provider}_{info['id']}@social.local"
+        user, created = User.objects.get_or_create(
+            email=email, defaults={"nickname": info.get("nickname", "")},
+        )
+        if created:
+            user.set_unusable_password()
+            user.save()
+
+        refresh = RefreshToken.for_user(user)
+        return Response({"access": str(refresh.access_token),
+                         "refresh": str(refresh),
+                         "is_new": created})

@@ -180,3 +180,4 @@ SIMPLE_JWT = {
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+APPLE_CLIENT_ID = config("APPLE_CLIENT_ID", default="")

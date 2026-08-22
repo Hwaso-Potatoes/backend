@@ -12,7 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 from decouple import config, Csv
-from decouple import config
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -36,20 +36,25 @@ ALLOWED_HOSTS = config(
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'channels',
+    'walk',
 
     'rest_framework',
     'corsheaders',
     'drf_spectacular',
-
-    'rest_framework_simplejwt.token_blacklist',   
-    'users',                                   
-    'pets',    
+      
+    'rest_framework_simplejwt.token_blacklist',
+    'users',
+    'pets',
+    'friends',
+    'missions',
 ]
 
 MIDDLEWARE = [
@@ -130,13 +135,6 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-REST_FRAMEWORK = {
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.AllowAny',
-    ),
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-}
-
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Hwaso Backend API',
     'DESCRIPTION': '반려견 산책 기반 소셜 서비스 백엔드 API',
@@ -149,13 +147,24 @@ CORS_ALLOWED_ORIGINS = config(
     cast=Csv()
 )
 
-from datetime import timedelta
+ASGI_APPLICATION = 'config.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": ["redis://127.0.0.1:6379/0"],        },
+    },
+}
 
 AUTH_USER_MODEL = "users.User"        
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.AllowAny",
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }

@@ -28,3 +28,17 @@ class Pet(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class PetHistory(models.Model):
+    pet = models.ForeignKey(
+        Pet,
+        on_delete=models.CASCADE,
+        related_name="level_up_histories",
+    )
+    before_level = models.PositiveIntegerField()
+    after_level = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]

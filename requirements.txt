@@ -27,6 +27,8 @@ jsonschema-specifications==2025.9.1
 msgpack==1.2.1
 packaging==26.2
 pillow==12.3.0
+psycopg==3.3.4
+psycopg-binary==3.3.4
 pycparser==3.0
 PyJWT==2.13.0
 pyOpenSSL==26.3.0

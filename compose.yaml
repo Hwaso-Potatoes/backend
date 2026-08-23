@@ -13,3 +13,22 @@ services:
 
     volumes:
       - .:/app
+
+  db:
+    image: postgres:16
+    container_name: hwaso-potatoes-db
+
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: hwaso-potatoes-redis
+
+volumes:
+  postgres_data:

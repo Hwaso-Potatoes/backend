@@ -5,10 +5,37 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from missions.models import PetAccessory
-from missions.serializers.accessory import AccessoryEquipResultSerializer, PetAccessoryListSerializer
+from missions.models import Accessory, PetAccessory
+from missions.serializers.accessory import AccessoryEquipResultSerializer, AccessorySerializer, PetAccessoryListSerializer
 from pets.models import Pet
 
+
+class AccessoryListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        tags=["액세서리"],
+        summary="전체 액세서리 조회",
+        description="서비스에 존재하는 전체 액세서리 목록을 조회합니다.",
+        responses={
+            200: AccessorySerializer(many=True),
+            401: OpenApiResponse(description="인증 실패"),
+        },
+    )
+    def get(self, request):
+        accessories = Accessory.objects.all().order_by("id")
+
+        serializer = AccessorySerializer(
+            accessories,
+            many=True,
+            context={"request": request},
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+    
 
 class PetAccessoryListView(APIView):
     permission_classes = [permissions.IsAuthenticated]

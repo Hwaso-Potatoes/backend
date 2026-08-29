@@ -24,6 +24,12 @@ class Badge(models.Model):
 
     image = models.ImageField(upload_to="badges/")
 
+    description = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
     condition_type = models.CharField(
         max_length=30,
         choices=ConditionType.choices,

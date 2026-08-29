@@ -10,6 +10,7 @@ class BadgeSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "image",
+            "description",
         )
         read_only_fields = fields
 

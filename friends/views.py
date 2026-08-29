@@ -1,13 +1,15 @@
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from users.models import User
+
 from .models import Friend
-from .serializers import FriendListSerializer, FriendRequestCreateResultSerializer, FriendRequestCreateSerializer, ReceivedFriendRequestSerializer
+from .serializers import FriendListSerializer, FriendRequestCreateResultSerializer, FriendRequestCreateSerializer, ReceivedFriendRequestSerializer,FriendSearchSerializer
 
 
 class FriendView(APIView):
@@ -241,4 +243,55 @@ class FriendDeleteView(APIView):
 
         return Response(
             status=status.HTTP_204_NO_CONTENT,
+        )
+
+
+class FriendSearchView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        tags=["친구"],
+        summary="친구 닉네임 검색",
+        description="닉네임에 검색어가 포함된 사용자를 최대 5명까지 조회합니다.",
+        parameters=[
+            OpenApiParameter(
+                name="nickname",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="검색할 닉네임",
+            ),
+        ],
+        responses={
+            200: FriendSearchSerializer(many=True),
+            401: OpenApiResponse(description="인증 실패"),
+        },
+    )
+    def get(self, request):
+        nickname = request.query_params.get("nickname", "").strip()
+
+        if not nickname:
+            return Response(
+                [],
+                status=status.HTTP_200_OK,
+            )
+
+        users = (
+            User.objects
+            .filter(
+                nickname__icontains=nickname,
+                is_active=True,
+            )
+            .exclude(pk=request.user.pk)
+            .order_by("nickname")[:5]
+        )
+
+        serializer = FriendSearchSerializer(
+            users,
+            many=True,
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
         )

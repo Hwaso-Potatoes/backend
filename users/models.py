@@ -58,7 +58,7 @@ class User(AbstractUser):
     username = None
 
     email = models.EmailField(unique=True)
-    nickname = models.CharField(max_length=8, unique=True, null=True, blank=True)  # 가입 후 프로필에서 설정
+    nickname = models.CharField("반려인 이름", max_length=8, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

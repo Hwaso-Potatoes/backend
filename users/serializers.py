@@ -12,7 +12,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "email", "nickname", "password", "password2"]
+        fields = ["id", "email", "password", "password2"]
         read_only_fields = ["id",]
 
     def validate(self, data):
@@ -25,7 +25,6 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         return User.objects.create_user(
             email=validated_data["email"],
-            nickname=validated_data["nickname"],
             password=validated_data["password"],
         )
     
@@ -38,6 +37,8 @@ class DetailSerializer(serializers.ModelSerializer):
 
 
 class UpdateSerializer(serializers.ModelSerializer):
+    nickname = serializers.CharField(max_length=8, allow_blank=False)
+
     class Meta:
         model = User
         fields = ["nickname"]
@@ -70,8 +71,30 @@ class PasswordChangeSerializer(serializers.Serializer):
             raise serializers.ValidationError({"new_password_confirm": "새 비밀번호가 일치하지 않습니다."})
         return data
     
-class EmailChangeSerializer(serializers.Serializer):
+class EmailChangeRequestSerializer(serializers.Serializer):
+    """이메일 변경 1단계 — 새 이메일로 인증번호 발송"""
     email = serializers.EmailField()
+
+    def validate_email(self, value):
+        value = value.lower().strip()
+        user = self.context["request"].user
+
+        if value == (user.email or "").lower():
+            raise serializers.ValidationError("현재 사용 중인 이메일과 동일합니다.")
+
+        if User.objects.exclude(pk=user.pk).filter(email__iexact=value).exists():
+            raise serializers.ValidationError("이미 사용 중인 이메일입니다.")
+
+        return value
+
+
+class EmailChangeConfirmSerializer(serializers.Serializer):
+    """이메일 변경 2단계 — 인증번호 검증"""
+    email = serializers.EmailField()
+    code = serializers.CharField(min_length=6, max_length=6)
+
+    def validate_email(self, value):
+        return value.lower().strip()
 
 class SocialLoginSerializer(serializers.Serializer):
     access_token = serializers.CharField(required=False, help_text="kakao/google용")

@@ -9,7 +9,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .serializers import LogoutSerializer, RegisterSerializer, DetailSerializer, UpdateSerializer
 from drf_spectacular.utils import extend_schema
 from .serializers import PasswordChangeSerializer
-from .serializers import EmailChangeSerializer
+
 
 import requests
 from django.contrib.auth import get_user_model
@@ -20,6 +20,12 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .social import PROVIDERS
 from drf_spectacular.utils import extend_schema
 from .serializers import SocialLoginSerializer
+
+from django.db import transaction
+
+from .models import EmailVerification
+from .serializers import EmailChangeRequestSerializer, EmailChangeConfirmSerializer
+from .utils import send_verification_code
 
 User = get_user_model()
 
@@ -218,24 +224,151 @@ class PasswordResetView(APIView):
         return Response({"detail": "비밀번호가 변경되었습니다."})
     
 class EmailChangeView(APIView):
-    """이메일 변경 (로그인 상태)"""
+    """이메일 변경 1단계 — 새 이메일로 인증번호 발송"""
     permission_classes = [permissions.IsAuthenticated]
+    throttle_scope = "email_verify"
 
-    @extend_schema(request=EmailChangeSerializer, responses={200: None})
+    @extend_schema(
+        tags=["사용자"],
+        summary="이메일 변경 요청",
+        description="새 이메일로 6자리 인증번호를 발송합니다. 이 단계에서는 이메일이 변경되지 않습니다.",
+        request=EmailChangeRequestSerializer,
+        responses={
+            200: inline_serializer(
+                name="EmailChangeRequestResponse",
+                fields={
+                    "detail": serializers.CharField(),
+                    "expires_in": serializers.IntegerField(),
+                },
+            ),
+            400: OpenApiResponse(description="잘못된 요청"),
+            401: OpenApiResponse(description="인증 실패"),
+            429: OpenApiResponse(description="재발송 쿨다운"),
+        },
+    )
     def post(self, request):
-        serializer = EmailChangeSerializer(data=request.data)
+        serializer = EmailChangeRequestSerializer(
+            data=request.data,
+            context={"request": request},
+        )
         serializer.is_valid(raise_exception=True)
         new_email = serializer.validated_data["email"]
+
+        remaining = EmailVerification.cooldown_remaining(
+            user=request.user,
+            purpose=EmailVerification.Purpose.EMAIL_CHANGE,
+        )
+        if remaining:
+            return Response(
+                {
+                    "detail": f"{remaining}초 후에 다시 요청해 주세요.",
+                    "retry_after": remaining,
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        _, code = EmailVerification.issue(
+            user=request.user,
+            email=new_email,
+            purpose=EmailVerification.Purpose.EMAIL_CHANGE,
+        )
+        send_verification_code(new_email, code, EmailVerification.CODE_TTL_MINUTES)
+
+        return Response(
+            {
+                "detail": "인증번호를 발송했습니다.",
+                "expires_in": EmailVerification.CODE_TTL_MINUTES * 60,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class EmailChangeVerifyView(APIView):
+    """이메일 변경 2단계 — 인증번호 확인 후 변경 확정"""
+    permission_classes = [permissions.IsAuthenticated]
+    throttle_scope = "email_verify"
+
+    @extend_schema(
+        tags=["사용자"],
+        summary="이메일 변경 인증",
+        description="발송된 인증번호를 확인하고 이메일 변경을 확정합니다.",
+        request=EmailChangeConfirmSerializer,
+        responses={
+            200: inline_serializer(
+                name="EmailChangeVerifyResponse",
+                fields={
+                    "detail": serializers.CharField(),
+                    "email": serializers.EmailField(),
+                },
+            ),
+            400: OpenApiResponse(description="인증번호 불일치 / 만료"),
+            401: OpenApiResponse(description="인증 실패"),
+            409: OpenApiResponse(description="이미 사용 중인 이메일"),
+        },
+    )
+    def post(self, request):
+        serializer = EmailChangeConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        new_email = serializer.validated_data["email"]
+        code = serializer.validated_data["code"]
         user = request.user
 
-    
-        if User.objects.exclude(pk=user.pk).filter(email=new_email).exists():
-            return Response({"email": "이미 사용 중인 이메일입니다."},
-                            status=status.HTTP_400_BAD_REQUEST)
+        verification = (
+            EmailVerification.objects.filter(
+                user=user,
+                email=new_email,
+                purpose=EmailVerification.Purpose.EMAIL_CHANGE,
+                verified_at__isnull=True,
+            )
+            .order_by("-created_at")
+            .first()
+        )
 
-        user.email = new_email
-        user.save()
-        return Response({"detail": "이메일이 변경되었습니다.", "email": new_email})
+        if verification is None:
+            return Response(
+                {"detail": "인증 요청 내역이 없습니다. 다시 요청해 주세요."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if verification.is_expired:
+            return Response(
+                {"detail": "인증번호가 만료되었습니다. 다시 요청해 주세요."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if verification.attempt_count >= EmailVerification.MAX_ATTEMPTS:
+            return Response(
+                {"detail": "시도 횟수를 초과했습니다. 다시 요청해 주세요."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not verification.verify(code):
+            return Response(
+                {
+                    "detail": "인증번호가 일치하지 않습니다.",
+                    "attempts_left": EmailVerification.MAX_ATTEMPTS - verification.attempt_count,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            if User.objects.exclude(pk=user.pk).filter(email__iexact=new_email).exists():
+                return Response(
+                    {"detail": "이미 사용 중인 이메일입니다."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            user.email = new_email
+            user.save(update_fields=["email", "updated_at"])
+
+        return Response(
+            {
+                "detail": "이메일이 변경되었습니다.",
+                "email": user.email,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 class SocialLoginView(APIView):
     """POST /api/users/social/<provider>/  (provider: kakao|google|apple)"""
@@ -259,8 +392,9 @@ class SocialLoginView(APIView):
 
         email = info.get("email") or f"{provider}_{info['id']}@social.local"
         user, created = User.objects.get_or_create(
-            email=email, defaults={"nickname": info.get("nickname", "")},
-        )
+            email=email,
+            defaults={"nickname": info.get("nickname") or None},   # "" → None
+)
         if created:
             user.set_unusable_password()
             user.save()

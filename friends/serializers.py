@@ -103,3 +103,14 @@ class FriendListSerializer(serializers.ModelSerializer):
             "pets"
         )
         read_only_fields = fields
+
+
+# Nickname을 통해 친구 검색
+class FriendSearchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "nickname",
+        )
+        read_only_fields = fields

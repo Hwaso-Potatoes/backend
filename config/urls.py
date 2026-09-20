@@ -6,7 +6,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/users/", include("users.urls")),
     path("api/pets/", include("pets.urls")),
-    path("api/pets/", include("missions.urls")),    
+    path("api/", include("missions.urls")),    
     path("api/pets/", include("walk.reports.urls")),
     path("api/friends/", include("friends.urls")),
     path('api/walks/', include('walk.urls')),

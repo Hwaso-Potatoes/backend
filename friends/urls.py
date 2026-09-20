@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import FriendDeleteView, FriendRequestAcceptView, FriendRequestRejectView, FriendView, ReceivedFriendRequestView
+from .views import FriendDeleteView, FriendRequestAcceptView, FriendRequestRejectView, FriendView, ReceivedFriendRequestView, FriendSearchView
 
 
 urlpatterns = [
@@ -9,4 +9,5 @@ urlpatterns = [
     path("requests/<int:request_id>/accept/", FriendRequestAcceptView.as_view(), name="friend-request-accept"),
     path("requests/<int:request_id>/reject/", FriendRequestRejectView.as_view(), name="friend-request-reject"),
     path("<int:friend_id>/", FriendDeleteView.as_view(), name="friend-delete"),
+    path("search/", FriendSearchView.as_view(), name="friend-search"),
 ]

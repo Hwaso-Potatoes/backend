@@ -20,13 +20,15 @@ class RegisterView(APIView):
     @extend_schema(
         tags=["인증"],
         summary="회원가입",
-        description="새로운 사용자를 등록합니다.",
+        description="새로운 사용자를 등록하고 JWT 토큰을 발급합니다.",
         request=RegisterSerializer,
         responses={
             201: inline_serializer(
                 name="RegisterResponse",
                 fields={
                     "id": serializers.IntegerField(),
+                    "access": serializers.CharField(),
+                    "refresh": serializers.CharField(),
                 },
             ),
             400: OpenApiResponse(description="잘못된 요청"),
@@ -38,9 +40,13 @@ class RegisterView(APIView):
 
         user = serializer.save()
 
+        refresh = RefreshToken.for_user(user)
+
         return Response(
             {
                 "id": user.id,
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
             },
             status=status.HTTP_201_CREATED,
         )

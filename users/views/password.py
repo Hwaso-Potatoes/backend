@@ -73,7 +73,7 @@ class PasswordResetRequestView(APIView):
 
             reset_link = (
                 f"{settings.FRONTEND_BASE_URL.rstrip('/')}"
-                f"/reset-password?{query}"
+                f"/#/reset-password?{query}"
             )
 
             try:

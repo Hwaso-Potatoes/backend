@@ -2,6 +2,7 @@ from django.db import models
 from django.utils import timezone
 from django.conf import settings
 
+
 class WalkingSession(models.Model):
     STATUS_CHOICES = [
         ('WALKING', '산책 중'),
@@ -10,9 +11,9 @@ class WalkingSession(models.Model):
     ]
 
     user = models.ForeignKey(
-    settings.AUTH_USER_MODEL,
-    on_delete=models.CASCADE,
-    related_name='walking_sessions'
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='walking_sessions'
     )
 
     pet = models.ForeignKey(
@@ -22,26 +23,25 @@ class WalkingSession(models.Model):
         blank=True,
         related_name='walking_sessions'
     )
-    
+
     start_time = models.DateTimeField(auto_now_add=True)
     end_time = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='WALKING')
-    
+
     # 누적 데이터 (단위: km, 분)
     total_distance = models.FloatField(default=0.0)   # 단위: km
     total_duration = models.IntegerField(default=0)  # 단위: 분(minutes)
-    
+
     # 일시정지 누적 시간 (단위: 초)
     paused_time = models.IntegerField(default=0)
     last_paused_at = models.DateTimeField(null=True, blank=True)
-    
-    # 실시간 위치 공유 여부
+
+    # 실시간 위치 공유 여부 (이번 산책 세션 기준)
     is_location_shared = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['-start_time']
         indexes = [
-            # 유저의 진행 중/최근 산책 조회 최적화
             models.Index(fields=['user', 'status']),
             models.Index(fields=['user', '-start_time']),
         ]
@@ -52,7 +52,7 @@ class WalkingSession(models.Model):
         return f"{pet_name}(보호자: {user_info})의 산책 ({self.start_time.strftime('%Y-%m-%d %H:%M')})"
 
     def get_pure_duration_seconds(self):
-        """총 소요 시간 중 일시정지 시간을 뺀 '순수 산책 시간(초)'을 계산해주는 헬퍼 메서드"""
+        """총 소요 시간 중 일시정지 시간을 뺀 '순수 산책 시간(초)'"""
         end = self.end_time or timezone.now()
         total_seconds = int((end - self.start_time).total_seconds())
 
@@ -61,25 +61,43 @@ class WalkingSession(models.Model):
             current_paused += int((timezone.now() - self.last_paused_at).total_seconds())
 
         return max(0, total_seconds - current_paused)
-    
+
+
 class WalkingPath(models.Model):
     session = models.ForeignKey(
-        WalkingSession, 
-        on_delete=models.CASCADE, 
+        WalkingSession,
+        on_delete=models.CASCADE,
         related_name='paths'
     )
 
-    # float 오차 방지를 위해 DecimalField 적용 (소수점 8자리 = 1mm 수준 정밀도)
     latitude = models.DecimalField(max_digits=11, decimal_places=8)
     longitude = models.DecimalField(max_digits=12, decimal_places=8)
+
+    # 서버에 저장된 시각
     timestamp = models.DateTimeField(auto_now_add=True)
-   
+    # 기기에서 측정한 시각 (미전송 시 서버 시각, 기존 데이터는 timestamp로 채움)
+    recorded_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
-        ordering = ['timestamp']
+        ordering = ['recorded_at', 'id']
         indexes = [
-            # 특정 산책 세션의 좌표를 시간 순서대로 빠르게 불러오는 인덱스
             models.Index(fields=['session', 'timestamp']),
+            models.Index(fields=['session', 'recorded_at'], name='walkpath_session_recorded_idx'),
         ]
 
     def __str__(self):
         return f"Session {self.session_id} - [{self.latitude}, {self.longitude}]"
+
+
+class WalkPreference(models.Model):
+    """산책 관련 사용자 설정 (알림설정 화면의 '산책 시 위치 공유')"""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='walk_preference'
+    )
+    share_location_on_walk = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user} - 위치 공유 {'ON' if self.share_location_on_walk else 'OFF'}"

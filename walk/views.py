@@ -4,18 +4,80 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db import transaction
-from geopy.distance import geodesic
 
-from .models import WalkingSession, WalkingPath
+from .models import WalkingSession, WalkPreference
 from .serializers import (
-    WalkingSessionSerializer, 
+    WalkingSessionSerializer,
     WalkingPathBatchSerializer
 )
-from pets.services import add_experience
-from .services import calculate_walk_experience
+from .services import calculate_walk_experience, append_locations, get_last_path
+from .realtime import broadcast_location, broadcast_location_hidden
+from .signals import send_walk_finished
 
+from pets.services import add_experience
 from missions.services.mission import update_walk_missions
-from missions.services.badge import check_first_walk_badge, check_total_distance_badges, check_total_duration_badges, check_daily_walk_count_badges, check_consecutive_days_badges, check_level_badges
+from missions.services.badge import (
+    check_first_walk_badge,
+    check_total_distance_badges,
+    check_total_duration_badges,
+    check_daily_walk_count_badges,
+    check_consecutive_days_badges,
+    check_level_badges,
+)
+
+
+# ─────────────────────────────────────────────
+# 공통 유틸
+# ─────────────────────────────────────────────
+
+def parse_bool(value):
+    """JSON true/false, 문자열 'true'/'false', 1/0 모두 처리. 해석 불가면 None"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ('true', '1', 'on', 'yes'):
+            return True
+        if v in ('false', '0', 'off', 'no'):
+            return False
+    return None
+
+
+def get_default_share_setting(user):
+    pref = WalkPreference.objects.filter(user=user).only('share_location_on_walk').first()
+    return pref.share_location_on_walk if pref else False
+
+
+def sync_user_share_setting(user, value):
+    WalkPreference.objects.update_or_create(
+        user=user,
+        defaults={'share_location_on_walk': value}
+    )
+
+
+def apply_location_share(session, value, user):
+    """
+    세션의 위치 공유 상태를 변경하고 필요한 브로드캐스트를 예약.
+    session.save()는 호출하지 않음 (호출부에서 저장).
+    반환값: 실제로 값이 바뀌었는지 여부
+    """
+    if session.is_location_shared == value:
+        return False
+
+    session.is_location_shared = value
+    sync_user_share_setting(user, value)
+
+    if value:
+        # 켜는 순간 마지막 좌표를 바로 보내서 친구 지도에 즉시 표시
+        last_path = get_last_path(session)
+        if last_path:
+            broadcast_location(session, last_path.latitude, last_path.longitude)
+    else:
+        broadcast_location_hidden(session, reason='sharing_off')
+
+    return True
 
 
 # [1. 산책 시작 API]
@@ -24,7 +86,7 @@ class WalkStartView(APIView):
 
     def post(self, request):
         active_session = WalkingSession.objects.filter(
-            user=request.user, 
+            user=request.user,
             status__in=['WALKING', 'PAUSED']
         ).first()
 
@@ -41,9 +103,11 @@ class WalkStartView(APIView):
             user=request.user,
             pet=user_pet,
             status='WALKING',
-            is_location_shared=False
+            # 설정 화면의 "산책 시 위치 공유" 값을 기본값으로 사용
+            is_location_shared=get_default_share_setting(request.user)
         )
-        
+        # 시작 시점엔 좌표가 없으므로 브로드캐스트 없음 (첫 위치 저장 때 전송됨)
+
         serializer = WalkingSessionSerializer(session)
         return Response({
             "message": "산책이 시작되었습니다.",
@@ -55,7 +119,6 @@ class WalkStartView(APIView):
 class WalkStatusView(APIView):
     permission_classes = [IsAuthenticated]
 
-    # GET 메서드 추가: 단순 산책 세션 정보 및 거리/시간 조회
     def get(self, request, walk_id):
         try:
             session = WalkingSession.objects.get(id=walk_id, user=request.user)
@@ -76,44 +139,85 @@ class WalkStatusView(APIView):
             return Response({"error": "이미 종료된 산책 세션은 상태를 변경할 수 없습니다."}, status=status.HTTP_400_BAD_REQUEST)
 
         new_status = request.data.get('status')
-        is_location_shared = request.data.get('is_location_shared')
+        raw_shared = request.data.get('is_location_shared')
         current_status = session.status
-        
-        if new_status is None and is_location_shared is None:
+
+        if new_status is None and raw_shared is None:
             return Response({"error": "수정할 데이터(status 또는 is_location_shared)를 제공해야 합니다."}, status=status.HTTP_400_BAD_REQUEST)
 
-        if is_location_shared is not None:
-            session.is_location_shared = bool(is_location_shared)
+        # 1) 입력 검증을 먼저 전부 끝낸 뒤 변경 적용
+        is_location_shared = None
+        if raw_shared is not None:
+            is_location_shared = parse_bool(raw_shared)
+            if is_location_shared is None:
+                return Response({"error": "is_location_shared는 true/false 값이어야 합니다."}, status=status.HTTP_400_BAD_REQUEST)
 
+        status_changed = False
         if new_status:
             if new_status not in ['WALKING', 'PAUSED']:
                 return Response({"error": "올바르지 않은 상태 값입니다. (WALKING 또는 PAUSED만 가능)"}, status=status.HTTP_400_BAD_REQUEST)
 
             if new_status == current_status:
-                return Response({"error": f"이미 현재 산책 상태가 '{current_status}' 입니다."}, status=status.HTTP_400_BAD_REQUEST)
+                # 상태만 보냈는데 동일하면 에러, 위치 공유와 함께 보냈으면 상태는 무시
+                if is_location_shared is None:
+                    return Response({"error": f"이미 현재 산책 상태가 '{current_status}' 입니다."}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                status_changed = True
 
+        # 2) 상태 변경
+        if status_changed:
             now = timezone.now()
-            # WALKING -> PAUSED : 정지 시각 기록
             if new_status == 'PAUSED' and current_status == 'WALKING':
                 session.last_paused_at = now
-
-            # PAUSED -> WALKING : 정지 시간 누적 계산
             elif new_status == 'WALKING' and current_status == 'PAUSED':
                 if session.last_paused_at:
                     paused_duration = (now - session.last_paused_at).total_seconds()
                     session.paused_time += int(paused_duration)
                     session.last_paused_at = None
-
             session.status = new_status
 
-        session.save()
-        
-        # 시리얼라이저가 paused_time_str ("X시간 Y분 Z초") 등을 자동으로 변환
-        serializer = WalkingSessionSerializer(session)
+        # 3) 위치 공유 변경 (하위 호환용 — 신규 프론트는 location-share/ 사용 권장)
+        if is_location_shared is not None:
+            apply_location_share(session, is_location_shared, request.user)
 
+        session.save()
+
+        serializer = WalkingSessionSerializer(session)
         return Response({
             "message": "산책 상태가 변경되었습니다.",
             "data": serializer.data
+        }, status=status.HTTP_200_OK)
+
+
+# [2-1. 산책 중 위치 공유 On/Off API] — 산책 중 화면 토글 전용
+class WalkLocationShareView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def patch(self, request, walk_id):
+        try:
+            session = WalkingSession.objects.select_for_update().get(id=walk_id, user=request.user)
+        except WalkingSession.DoesNotExist:
+            return Response({"error": "존재하지 않거나 본인의 산책 세션이 아닙니다."}, status=status.HTTP_404_NOT_FOUND)
+
+        if session.status == 'FINISHED':
+            return Response({"error": "이미 종료된 산책은 위치 공유를 변경할 수 없습니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        value = parse_bool(request.data.get('is_location_shared'))
+        if value is None:
+            return Response({"error": "is_location_shared(true/false)를 제공해야 합니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        changed = apply_location_share(session, value, request.user)
+        if changed:
+            session.save(update_fields=['is_location_shared'])
+
+        return Response({
+            "message": "위치 공유가 켜졌습니다." if value else "위치 공유가 꺼졌습니다.",
+            "data": {
+                "walk_id": session.id,
+                "is_location_shared": session.is_location_shared,
+                "changed": changed,
+            }
         }, status=status.HTTP_200_OK)
 
 
@@ -127,33 +231,42 @@ class WalkEndView(APIView):
             session = WalkingSession.objects.select_for_update().get(id=walk_id, user=request.user)
         except WalkingSession.DoesNotExist:
             return Response({"error": "존재하지 않거나 본인의 산책 세션이 아닙니다."}, status=status.HTTP_404_NOT_FOUND)
-        
+
         if session.status == 'FINISHED':
             return Response({"error": "이미 종료된 산책입니다."}, status=status.HTTP_400_BAD_REQUEST)
 
         now = timezone.now()
 
-        # PAUSED 상태에서 종료 시 처리
         if session.status == 'PAUSED' and session.last_paused_at:
             paused_duration = (now - session.last_paused_at).total_seconds()
             session.paused_time += int(paused_duration)
             session.last_paused_at = None
 
+        was_shared = session.is_location_shared
+
         session.end_time = now
         session.status = 'FINISHED'
         session.is_location_shared = False
 
-        # 모델 메서드를 호출해 순수 산책 시간을 초단위로 구한 뒤, '분' 단위 저장
         pure_seconds = session.get_pure_duration_seconds()
         session.total_duration = pure_seconds // 60
-        
-        # total_distance는 실시간 누적 방식 적용 (소수점 둘째 자리 정리)
         session.total_distance = round(session.total_distance, 2)
         session.save()
 
-        earned_experience = calculate_walk_experience(
-            session.total_distance
-        )
+        # 공유 중이었다면 친구 지도에서 마커 제거
+        # (종료 자체는 설정 변경이 아니므로 사용자 설정은 건드리지 않음)
+        if was_shared:
+            broadcast_location_hidden(session, reason='walk_ended')
+
+        # 오늘 첫 산책인지 (출석 처리용)
+        walk_date = timezone.localdate(now)
+        is_first_walk_today = not WalkingSession.objects.filter(
+            user=request.user,
+            status='FINISHED',
+            end_time__date=walk_date,
+        ).exclude(id=session.id).exists()
+
+        earned_experience = calculate_walk_experience(session.total_distance)
 
         if session.pet:
             previous_level = session.pet.level
@@ -164,37 +277,24 @@ class WalkEndView(APIView):
             )
 
             if session.pet.level > previous_level:
-                check_level_badges(
-                    pet=session.pet,
-                )
+                check_level_badges(pet=session.pet)
 
-            check_first_walk_badge(
-                pet=session.pet,
-            )
-
-            check_total_distance_badges(
-                pet=session.pet,
-            )
-
-            check_total_duration_badges(
-                pet=session.pet,
-            )
-
-            check_daily_walk_count_badges(
-                pet=session.pet,
-            )
-
-            check_consecutive_days_badges(
-                pet=session.pet,
-            )
+            check_first_walk_badge(pet=session.pet)
+            check_total_distance_badges(pet=session.pet)
+            check_total_duration_badges(pet=session.pet)
+            check_daily_walk_count_badges(pet=session.pet)
+            check_consecutive_days_badges(pet=session.pet)
 
         update_walk_missions(session)
 
-        # 응답 문자열 포맷팅
+        # 산책 종료 신호 발송 (출석 처리 등) — DB 커밋 후 실행
+        transaction.on_commit(lambda: send_walk_finished(session, is_first_walk_today))
+
         serializer = WalkingSessionSerializer(session)
         return Response({
             "message": "산책이 성공적으로 종료되었습니다.",
             "earned_experience": earned_experience,
+            "is_first_walk_today": is_first_walk_today,
             "data": serializer.data
         }, status=status.HTTP_200_OK)
 
@@ -217,47 +317,51 @@ class WalkPathCreateView(APIView):
 
         data_list = request.data if isinstance(request.data, list) else [request.data]
         serializer = WalkingPathBatchSerializer(data=data_list, many=True)
-        
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        valid_locations = serializer.validated_data
-        
-        last_path = session.paths.order_by('-timestamp').first()
-        last_coords = (float(last_path.latitude), float(last_path.longitude)) if last_path else None
+        created_paths = append_locations(session, serializer.validated_data)
 
-        created_paths = []
-        added_distance_km = 0.0
-
-        for loc in valid_locations:
-            current_coords = (float(loc['latitude']), float(loc['longitude']))
-
-            if last_coords:
-                dist_km = geodesic(last_coords, current_coords).km
-
-                # GPS 튐 필터링 (100m 이상 거품 노이즈 제외)
-                if dist_km > 0.1:  
-                    continue 
-                if dist_km >= 0.001:  # 1m 이상 이동 시 계산
-                    added_distance_km += dist_km
-                    last_coords = current_coords
-            else:
-                last_coords = current_coords
-
-            created_paths.append(WalkingPath(
-                session=session,
-                latitude=loc['latitude'],
-                longitude=loc['longitude']
-            ))
-
-        if created_paths:
-            WalkingPath.objects.bulk_create(created_paths)
-
-        if added_distance_km > 0:
-            session.total_distance += added_distance_km
-            session.save(update_fields=['total_distance'])
+        # 공유 On일 때만 최신 좌표를 친구들에게 전송 (Off여도 경로 저장/거리 계산은 계속)
+        if session.is_location_shared and created_paths:
+            latest = created_paths[-1]
+            broadcast_location(session, latest.latitude, latest.longitude)
 
         return Response({
             "message": f"{len(created_paths)}개의 위치 정보가 추가되었습니다.",
-            "current_total_distance_km": round(session.total_distance, 2)
+            "current_total_distance_km": round(session.total_distance, 2),
+            "is_location_shared": session.is_location_shared,
         }, status=status.HTTP_201_CREATED)
+
+
+# [5. 위치 공유 설정 API] — 알림설정 화면의 '산책 시 위치 공유' 토글
+class LocationShareSettingView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            "share_location_on_walk": get_default_share_setting(request.user)
+        }, status=status.HTTP_200_OK)
+
+    @transaction.atomic
+    def patch(self, request):
+        value = parse_bool(request.data.get('share_location_on_walk'))
+        if value is None:
+            return Response({"error": "share_location_on_walk(true/false)를 제공해야 합니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        active_session = WalkingSession.objects.select_for_update().filter(
+            user=request.user,
+            status__in=['WALKING', 'PAUSED']
+        ).first()
+
+        if active_session and apply_location_share(active_session, value, request.user):
+            # 산책 중이면 세션에도 반영 + 친구 브로드캐스트 (설정 저장은 내부에서 처리)
+            active_session.save(update_fields=['is_location_shared'])
+        else:
+            sync_user_share_setting(request.user, value)
+
+        return Response({
+            "message": "위치 공유 설정이 변경되었습니다.",
+            "share_location_on_walk": value,
+            "applied_to_active_walk": active_session.id if active_session else None,
+        }, status=status.HTTP_200_OK)

@@ -2,6 +2,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from .models import Pet, PERSONALITY_CHOICES
+from .services import get_required_experience
 
 
 class PetSerializer(serializers.ModelSerializer):
@@ -113,24 +114,38 @@ class PetGrowthSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_required_experience(self, obj):
-        return obj.level * 100
+        return get_required_experience(
+            obj.level
+        )
 
     def get_remaining_experience(self, obj):
-        required_experience = self.get_required_experience(obj)
+        required_experience = (
+            get_required_experience(
+                obj.level
+            )
+        )
 
         return max(
             0,
-            required_experience - obj.experience,
+            required_experience
+            - obj.experience,
         )
 
     def get_progress_percent(self, obj):
-        required_experience = self.get_required_experience(obj)
+        required_experience = (
+            get_required_experience(
+                obj.level
+            )
+        )
 
         if required_experience <= 0:
             return 0
 
         return min(
             100,
-            int(obj.experience / required_experience * 100),
+            int(
+                obj.experience
+                / required_experience
+                * 100
+            ),
         )
-    

@@ -1,15 +1,21 @@
+from urllib.parse import urlencode
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+
 from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from ..models import SocialAccount
 from ..serializers import LogoutSerializer, RegisterSerializer, SocialLoginSerializer
 from ..social import PROVIDERS
+from ..utils import send_password_reset_email
 
 
 User = get_user_model()

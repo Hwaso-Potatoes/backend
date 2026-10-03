@@ -3,6 +3,7 @@ from .auth import (
     LogoutView,
     RefreshView,
     RegisterView,
+    SocialLinkView,
     SocialLoginView,
 )
 

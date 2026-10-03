@@ -1,8 +1,10 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
+from .models import SocialAccount
 from .services.verification import SignupVerificationTokenError, delete_signup_verification_token, validate_signup_verification_token
 
 User = get_user_model()
@@ -84,10 +86,21 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 # 사용자 프로필 조회
 class DetailSerializer(serializers.ModelSerializer):
+    social_accounts = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "email", "nickname"]
+        fields = ["id", "email", "nickname", "social_accounts"]
         read_only_fields = fields
+
+    @extend_schema_field(
+        serializers.DictField(
+            child=serializers.BooleanField(),
+            help_text='SNS 계정 연동 여부 — {"google": bool, "apple": bool, "kakao": bool}',
+        )
+    )
+    def get_social_accounts(self, obj):
+        return SocialAccount.linked_status(obj)
 
 
 # 사용자 프로필 수정
@@ -125,7 +138,7 @@ class PasswordChangeSerializer(serializers.Serializer):
 
     def validate(self, data):
         if data["new_password"] != data["new_password_confirm"]:
-            raise serializers.ValidationError({"new_password_confirm": "새 비밀번호가 일치하지 않습니다."})
+            raise serializers.ValidationError({"new_password_confirm": "비밀번호가 일치하지 않습니다."})
         return data
 
 
@@ -199,26 +212,10 @@ class PasswordResetRequestSerializer(serializers.Serializer):
         return value.lower().strip()
 
 
-# 비밀번호 재설정(비로그인시)
+# 비밀번호 재설정(비로그인시) — 2단계: 인증번호 확인 후 임시 비밀번호 발급
 class PasswordResetConfirmSerializer(serializers.Serializer):
-    uid = serializers.CharField()
-    token = serializers.CharField()
+    email = serializers.EmailField()
+    code = serializers.CharField(min_length=6, max_length=6)
 
-    new_password = serializers.CharField(
-        write_only=True,
-        validators=[validate_password],
-    )
-
-    new_password2 = serializers.CharField(
-        write_only=True,
-    )
-
-    def validate(self, data):
-        if data["new_password"] != data["new_password2"]:
-            raise serializers.ValidationError(
-                {
-                    "new_password2": "비밀번호가 일치하지 않습니다."
-                }
-            )
-
-        return data
+    def validate_email(self, value):
+        return value.lower().strip()

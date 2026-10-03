@@ -4,125 +4,131 @@ from django.utils import timezone
 from missions.models import Badge, PetBadge
 
 
-# 일정 조건 만족시, 뱃지 지급
-def grant_badge(pet, badge):
-    pet_badge, created = PetBadge.objects.get_or_create(
-        pet=pet,
-        badge=badge,
+# 뱃지 지급
+def grant_badge(*, pet, badge):
+    pet_badge, created = (
+        PetBadge.objects.get_or_create(
+            pet=pet,
+            badge=badge,
+        )
     )
 
     return pet_badge, created
 
 
-# '첫 산책' 만족 여부 확인
-def check_first_walk_badge(pet):
-    badge = Badge.objects.filter(
-        condition_type=Badge.ConditionType.FIRST_WALK,
-    ).first()
+# 숫자 goal 기반 뱃지 공통 지급
+def grant_goal_badges(*, pet, condition_type, current_value):
+    badges = (
+        Badge.objects
+        .filter(
+            condition_type=condition_type,
+            goal__isnull=False,
+            goal__lte=current_value,
+        )
+        .order_by("goal")
+    )
 
-    if not badge:
-        return None
+    acquired_badges = []
 
-    finished_walk_count = pet.walking_sessions.filter(status="FINISHED").count()
-
-    if finished_walk_count == 1:
+    for badge in badges:
         pet_badge, created = grant_badge(
             pet=pet,
             badge=badge,
         )
 
         if created:
-            return pet_badge
+            acquired_badges.append(
+                pet_badge
+            )
 
-    return None
+    return acquired_badges
 
 
-# '일정 거리' 만족 여부 확인
+# 첫 산책 뱃지
+def check_first_walk_badges(pet):
+    finished_walk_count = (
+        pet.walking_sessions
+        .filter(
+            status="FINISHED",
+        )
+        .count()
+    )
+
+    return grant_goal_badges(
+        pet=pet,
+        condition_type=(
+            Badge.ConditionType.FIRST_WALK
+        ),
+        current_value=finished_walk_count,
+    )
+
+
+# 누적 산책 거리 뱃지
 def check_total_distance_badges(pet):
     total_distance = (
         pet.walking_sessions
-        .filter(status="FINISHED")
-        .aggregate(total=Sum("total_distance"))["total"]
+        .filter(
+            status="FINISHED",
+        )
+        .aggregate(
+            total=Sum("total_distance"),
+        )["total"]
         or 0
     )
 
-    badges = Badge.objects.filter(
-        condition_type=Badge.ConditionType.TOTAL_DISTANCE,
-        goal__lte=total_distance,
+    return grant_goal_badges(
+        pet=pet,
+        condition_type=(
+            Badge.ConditionType.TOTAL_DISTANCE
+        ),
+        current_value=total_distance,
     )
 
-    acquired_badges = []
 
-    for badge in badges:
-        pet_badge, created = grant_badge(
-            pet=pet,
-            badge=badge,
-        )
-
-        if created:
-            acquired_badges.append(pet_badge)
-
-    return acquired_badges
-
-
-# '누적 시간' 만족 여부 확인
+# 누적 산책 시간 뱃지
 def check_total_duration_badges(pet):
     total_duration = (
         pet.walking_sessions
-        .filter(status="FINISHED")
-        .aggregate(total=Sum("total_duration"))["total"]
+        .filter(
+            status="FINISHED",
+        )
+        .aggregate(
+            total=Sum("total_duration"),
+        )["total"]
         or 0
     )
 
-    badges = Badge.objects.filter(
-        condition_type=Badge.ConditionType.TOTAL_DURATION,
-        goal__lte=total_duration,
+    return grant_goal_badges(
+        pet=pet,
+        condition_type=(
+            Badge.ConditionType.TOTAL_DURATION
+        ),
+        current_value=total_duration,
     )
 
-    acquired_badges = []
 
-    for badge in badges:
-        pet_badge, created = grant_badge(
-            pet=pet,
-            badge=badge,
+# 하루 산책 횟수 뱃지
+def check_daily_walk_count_badges(*, pet, walk_date):
+    walk_count = (
+        pet.walking_sessions
+        .filter(
+            status="FINISHED",
+            end_time__date=walk_date,
         )
-
-        if created:
-            acquired_badges.append(pet_badge)
-
-    return acquired_badges
-
-
-# '하루 3회 산책' 만족 여부 확인
-def check_daily_walk_count_badges(pet):
-    today = timezone.localdate()
-
-    walk_count = pet.walking_sessions.filter(
-        status="FINISHED",
-        end_time__date=today,
-    ).count()
-
-    badges = Badge.objects.filter(
-        condition_type=Badge.ConditionType.DAILY_WALK_COUNT,
-        goal__lte=walk_count,
+        .count()
     )
 
-    acquired_badges = []
-
-    for badge in badges:
-        pet_badge, created = grant_badge(
-            pet=pet,
-            badge=badge,
-        )
-
-        if created:
-            acquired_badges.append(pet_badge)
-
-    return acquired_badges
+    return grant_goal_badges(
+        pet=pet,
+        condition_type=(
+            Badge.ConditionType.DAILY_WALK_COUNT
+        ),
+        current_value=walk_count,
+    )
 
 
-# '연속 출석' 만족 여부 확인
-def check_consecutive_days_badges(pet):
+# 연속 산책 일수 계산
+def get_consecutive_walk_days(pet):
     walk_dates = list(
         pet.walking_sessions
         .filter(
@@ -137,7 +143,7 @@ def check_consecutive_days_badges(pet):
     )
 
     if not walk_dates:
-        return []
+        return 0
 
     consecutive_days = 1
 
@@ -145,46 +151,135 @@ def check_consecutive_days_badges(pet):
         previous_date = walk_dates[i - 1]
         current_date = walk_dates[i]
 
-        if (previous_date - current_date).days == 1:
+        if (
+            previous_date - current_date
+        ).days == 1:
             consecutive_days += 1
         else:
             break
 
-    badges = Badge.objects.filter(
-        condition_type=Badge.ConditionType.CONSECUTIVE_DAYS,
-        goal__lte=consecutive_days,
+    return consecutive_days
+
+
+# 연속 산책 뱃지
+def check_consecutive_days_badges(pet):
+    consecutive_days = (
+        get_consecutive_walk_days(pet)
     )
 
-    acquired_badges = []
-
-    for badge in badges:
-        pet_badge, created = grant_badge(
-            pet=pet,
-            badge=badge,
-        )
-
-        if created:
-            acquired_badges.append(pet_badge)
-
-    return acquired_badges
+    return grant_goal_badges(
+        pet=pet,
+        condition_type=(
+            Badge.ConditionType.CONSECUTIVE_DAYS
+        ),
+        current_value=consecutive_days,
+    )
 
 
-# '레벨 50' 만족 여부 확인
+# 레벨 뱃지
 def check_level_badges(pet):
-    badges = Badge.objects.filter(
-        condition_type=Badge.ConditionType.LEVEL,
-        goal__lte=pet.level,
+    return grant_goal_badges(
+        pet=pet,
+        condition_type=(
+            Badge.ConditionType.LEVEL
+        ),
+        current_value=pet.level,
     )
 
+
+# 비/눈 산책 뱃지: WalkingSession에 산책 당시 날씨 정보가 저장되면 구현
+def check_weather_badges(*, pet, session):
+    return []
+
+
+# 새로운 지역/숲/도시 산책 뱃지: 산책 경로의 지역 및 환경 타입을 판단할 수 있게 되면 구현
+def check_location_badges(*, pet, session):
     acquired_badges = []
 
-    for badge in badges:
-        pet_badge, created = grant_badge(
-            pet=pet,
-            badge=badge,
+    condition_types = []
+
+    if session.is_forest_walk is True:
+        condition_types.append(
+            Badge.ConditionType.FOREST_WALK
         )
 
-        if created:
-            acquired_badges.append(pet_badge)
+    if session.is_city_walk is True:
+        condition_types.append(
+            Badge.ConditionType.CITY_WALK
+        )
+
+    if session.is_new_area is True:
+        condition_types.append(
+            Badge.ConditionType.NEW_REGION
+        )
+
+    for condition_type in condition_types:
+        badges = Badge.objects.filter(
+            condition_type=condition_type
+        )
+
+        for badge in badges:
+            pet_badge, created = grant_badge(
+                pet=pet,
+                badge=badge,
+            )
+
+            if created:
+                acquired_badges.append(
+                    pet_badge
+                )
 
     return acquired_badges
+
+
+# 산책 종료 시 확인할 뱃지
+def check_walk_badges(*, pet, session):
+    acquired_badges = []
+
+    acquired_badges.extend(
+        check_first_walk_badges(
+            pet
+        )
+    )
+
+    acquired_badges.extend(
+        check_total_distance_badges(
+            pet
+        )
+    )
+
+    acquired_badges.extend(
+        check_total_duration_badges(
+            pet
+        )
+    )
+
+    acquired_badges.extend(
+        check_daily_walk_count_badges(
+            pet=pet,
+            walk_date=timezone.localdate(
+                session.end_time
+            ),
+        )
+    )
+
+    acquired_badges.extend(
+        check_consecutive_days_badges(
+            pet
+        )
+    )
+
+    # 지급 로직 미구현
+    acquired_badges.extend(
+        check_weather_badges(
+            pet=pet,
+            session=session,
+        )
+    )
+
+    return acquired_badges
+
+
+# 첫 친구/호감도 친구 뱃지
+def check_friend_badges(*, pet):
+    return []

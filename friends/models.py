@@ -4,52 +4,26 @@ from django.db.models import F, Q
 
 
 class Friend(models.Model):
-    class Status(models.TextChoices):
-        PENDING = "PENDING", "대기"
-        ACCEPTED = "ACCEPTED", "수락"
-
-    requester = models.ForeignKey(
+    user1 = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="sent_friend_requests",
-        verbose_name="요청자",
+        related_name="friendships_as_user1",
     )
-    receiver = models.ForeignKey(
+    user2 = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="received_friend_requests",
-        verbose_name="수신자",
+        related_name="friendships_as_user2",
     )
-    status = models.CharField(
-        max_length=10,
-        choices=Status.choices,
-        default=Status.PENDING,
-        verbose_name="상태",
-    )
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        verbose_name="생성일",
-    )
-    updated_at = models.DateTimeField(
-        auto_now=True,
-        verbose_name="수정일",
-    )
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-created_at"]
         constraints = [
             models.CheckConstraint(
-                condition=~Q(requester=F("receiver")),
-                name="prevent_self_friend_request",
+                condition=Q(user1_id__lt=F("user2_id")),
+                name="friend_user_order",
             ),
             models.UniqueConstraint(
-                fields=["requester", "receiver"],
-                name="unique_friend_request",
+                fields=["user1", "user2"],
+                name="unique_friendship",
             ),
         ]
-
-    def __str__(self):
-        return (
-            f"{self.requester.nickname} → "
-            f"{self.receiver.nickname} ({self.status})"
-        )

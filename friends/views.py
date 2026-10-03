@@ -1,3 +1,6 @@
+from django.contrib.auth import get_user_model
+from django.contrib.postgres.search import TrigramSimilarity
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 
@@ -5,209 +8,214 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework import generics, permissions
 
-from users.models import User
 
 from .models import Friend
-from .serializers import FriendListSerializer, FriendRequestCreateResultSerializer, FriendRequestCreateSerializer, ReceivedFriendRequestSerializer,FriendSearchSerializer
+from .serializers import (
+    FriendListSerializer,
+    FriendQRCreateResultSerializer,
+    FriendQRRedeemResultSerializer,
+    FriendQRRedeemSerializer,
+)
+from .services import (
+    FRIEND_QR_TTL_SECONDS,
+    FriendQRTokenError,
+    consume_friend_qr_token,
+    generate_friend_qr_token,
+    get_friend_qr_owner_id,
+)
 
 
-class FriendView(APIView):
+User = get_user_model()
+
+
+class FriendListView(generics.ListAPIView):
+    serializer_class = FriendListSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
         tags=["친구"],
         summary="친구 목록 조회",
-        description="현재 사용자의 친구 목록을 조회합니다.",
+        description="현재 사용자의 친구 목록을 조회하며 닉네임으로 부분 및 유사 검색할 수 있습니다.",
+        parameters=[
+            OpenApiParameter(
+                name="nickname",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="검색할 친구 닉네임",
+            ),
+        ],
         responses={
             200: FriendListSerializer(many=True),
             401: OpenApiResponse(description="인증 실패"),
         },
     )
-    def get(self, request):
-        relationships = Friend.objects.filter(
-            Q(requester=request.user)
-            | Q(receiver=request.user),
-            status=Friend.Status.ACCEPTED,
-        ).select_related(
-            "requester",
-            "receiver",
-        ).prefetch_related(     
-            "requester__pets",
-            "receiver__pets",
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        queryset = (
+            User.objects
+            .filter(
+                Q(
+                    friendships_as_user1__user2=self.request.user,
+                )
+                | Q(
+                    friendships_as_user2__user1=self.request.user,
+                ),
+                is_active=True,
+            )
+            .prefetch_related("pets")
+            .distinct()
         )
 
-        friends = [
-            relationship.receiver
-            if relationship.requester_id == request.user.id
-            else relationship.requester
-            for relationship in relationships
-        ]
+        nickname = self.request.query_params.get(
+            "nickname",
+            "",
+        ).strip()
 
-        serializer = FriendListSerializer(
-            friends,
-            many=True,
+        if not nickname:
+            return queryset.order_by("nickname")
+
+        return (
+            queryset
+            .annotate(
+                similarity=TrigramSimilarity(
+                    "nickname",
+                    nickname,
+                )
+            )
+            .filter(
+                Q(nickname__icontains=nickname)
+                | Q(similarity__gte=0.2)
+            )
+            .order_by(
+                "-similarity",
+                "nickname",
+            )
         )
 
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
+
+class FriendQRCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
         tags=["친구"],
-        summary="친구 요청",
-        description="다른 사용자에게 친구 요청을 보냅니다.",
-        request=FriendRequestCreateSerializer,
+        summary="친구 추가 QR 생성",
+        description="현재 사용자의 친구 추가용 QR 토큰을 생성합니다.",
+        request=None,
         responses={
-            201: FriendRequestCreateResultSerializer,
-            400: OpenApiResponse(description="잘못된 요청"),
+            200: FriendQRCreateResultSerializer,
             401: OpenApiResponse(description="인증 실패"),
         },
     )
     def post(self, request):
-        serializer = FriendRequestCreateSerializer(
-            data=request.data,
-            context={
-                "request": request,
+        token = generate_friend_qr_token(
+            request.user.id,
+        )
+
+        return Response(
+            {
+                "token": token,
+                "expires_in": FRIEND_QR_TTL_SECONDS,
             },
-        )
-        serializer.is_valid(raise_exception=True)
-
-        friend_request = serializer.save()
-
-        response_serializer = FriendRequestCreateResultSerializer(
-            friend_request,
-        )
-
-        return Response(
-            response_serializer.data,
-            status=status.HTTP_201_CREATED,
-        )
-
-
-class ReceivedFriendRequestView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    @extend_schema(
-        tags=["친구"],
-        summary="받은 친구 요청 조회",
-        description="현재 사용자가 받은 친구 요청을 조회합니다.",
-        responses={
-            200: ReceivedFriendRequestSerializer(many=True),
-            401: OpenApiResponse(description="인증 실패"),
-        },
-    )
-    def get(self, request):
-        friend_requests = Friend.objects.filter(
-            receiver=request.user,
-            status=Friend.Status.PENDING,
-        ).select_related("requester")
-
-        serializer = ReceivedFriendRequestSerializer(
-            friend_requests,
-            many=True,
-        )
-
-        return Response(
-            serializer.data,
             status=status.HTTP_200_OK,
         )
 
 
-class FriendRequestAcceptView(APIView):
+class FriendQRRedeemView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
         tags=["친구"],
-        summary="친구 요청 수락",
-        description="현재 사용자가 받은 친구 요청을 수락합니다.",
-        request=None,
+        summary="QR 스캔 친구 추가",
+        description="스캔한 QR 토큰을 검증하고 해당 사용자와 친구 관계를 생성합니다.",
+        request=FriendQRRedeemSerializer,
         responses={
-            204: OpenApiResponse(description="친구 요청 수락 성공"),
-            400: OpenApiResponse(description="이미 처리된 친구 요청"),
+            201: FriendQRRedeemResultSerializer,
+            400: OpenApiResponse(description="잘못된 요청"),
             401: OpenApiResponse(description="인증 실패"),
-            403: OpenApiResponse(description="처리 권한 없음"),
-            404: OpenApiResponse(description="친구 요청을 찾을 수 없음"),
+            404: OpenApiResponse(description="사용자를 찾을 수 없음"),
         },
     )
-    def post(self, request, request_id):
-        friend_request = get_object_or_404(
-            Friend,
-            pk=request_id,
+    def post(self, request):
+        serializer = FriendQRRedeemSerializer(
+            data=request.data,
         )
+        serializer.is_valid(raise_exception=True)
 
-        if friend_request.receiver != request.user:
+        token = serializer.validated_data["token"]
+
+        try:
+            target_user_id = get_friend_qr_owner_id(token)
+        except FriendQRTokenError as exc:
             return Response(
-                {
-                    "detail": "받은 친구 요청만 처리할 수 있습니다.",
-                },
-                status=status.HTTP_403_FORBIDDEN,
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if friend_request.status != Friend.Status.PENDING:
+        if target_user_id == request.user.id:
             return Response(
                 {
-                    "detail": "이미 처리된 친구 요청입니다.",
+                    "detail": "자기 자신은 친구로 추가할 수 없습니다.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        friend_request.status = Friend.Status.ACCEPTED
-        friend_request.save(
-            update_fields=(
-                "status",
-                "updated_at",
-            )
+        target_user = get_object_or_404(
+            User,
+            id=target_user_id,
+            is_active=True,
         )
 
-        return Response(
-            status=status.HTTP_204_NO_CONTENT,
-        )
+        user1_id, user2_id = sorted([
+            request.user.id,
+            target_user.id,
+        ])
 
-
-class FriendRequestRejectView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    @extend_schema(
-        tags=["친구"],
-        summary="친구 요청 거절",
-        description="현재 사용자가 받은 친구 요청을 거절합니다.",
-        request=None,
-        responses={
-            204: OpenApiResponse(description="친구 요청 거절 성공"),
-            400: OpenApiResponse(description="이미 처리된 친구 요청"),
-            401: OpenApiResponse(description="인증 실패"),
-            403: OpenApiResponse(description="처리 권한 없음"),
-            404: OpenApiResponse(description="친구 요청을 찾을 수 없음"),
-        },
-    )
-    def post(self, request, request_id):
-        friend_request = get_object_or_404(
-            Friend,
-            pk=request_id,
-        )
-
-        if friend_request.receiver != request.user:
+        if Friend.objects.filter(
+            user1_id=user1_id,
+            user2_id=user2_id,
+        ).exists():
             return Response(
                 {
-                    "detail": "받은 친구 요청만 처리할 수 있습니다.",
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        if friend_request.status != Friend.Status.PENDING:
-            return Response(
-                {
-                    "detail": "이미 처리된 친구 요청입니다.",
+                    "detail": "이미 친구로 등록된 사용자입니다.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        friend_request.delete()
+        try:
+            consume_friend_qr_token(token)
+        except FriendQRTokenError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                friendship = Friend.objects.create(
+                    user1_id=user1_id,
+                    user2_id=user2_id,
+                )
+        except IntegrityError:
+            return Response(
+                {
+                    "detail": "이미 친구로 등록된 사용자입니다.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         return Response(
-            status=status.HTTP_204_NO_CONTENT,
+            {
+                "id": friendship.id,
+                "friend": FriendListSerializer(
+                    target_user,
+                ).data,
+            },
+            status=status.HTTP_201_CREATED,
         )
 
 
@@ -225,73 +233,19 @@ class FriendDeleteView(APIView):
         },
     )
     def delete(self, request, friend_id):
+        user1_id, user2_id = sorted([
+            request.user.id,
+            friend_id,
+        ])
+
         friendship = get_object_or_404(
-            Friend.objects.filter(
-                Q(
-                    requester=request.user,
-                    receiver_id=friend_id,
-                )
-                | Q(
-                    requester_id=friend_id,
-                    receiver=request.user,
-                ),
-                status=Friend.Status.ACCEPTED,
-            )
+            Friend,
+            user1_id=user1_id,
+            user2_id=user2_id,
         )
 
         friendship.delete()
 
         return Response(
             status=status.HTTP_204_NO_CONTENT,
-        )
-
-
-class FriendSearchView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    @extend_schema(
-        tags=["친구"],
-        summary="친구 닉네임 검색",
-        description="닉네임에 검색어가 포함된 사용자를 최대 5명까지 조회합니다.",
-        parameters=[
-            OpenApiParameter(
-                name="nickname",
-                type=str,
-                location=OpenApiParameter.QUERY,
-                required=True,
-                description="검색할 닉네임",
-            ),
-        ],
-        responses={
-            200: FriendSearchSerializer(many=True),
-            401: OpenApiResponse(description="인증 실패"),
-        },
-    )
-    def get(self, request):
-        nickname = request.query_params.get("nickname", "").strip()
-
-        if not nickname:
-            return Response(
-                [],
-                status=status.HTTP_200_OK,
-            )
-
-        users = (
-            User.objects
-            .filter(
-                nickname__icontains=nickname,
-                is_active=True,
-            )
-            .exclude(pk=request.user.pk)
-            .order_by("nickname")[:5]
-        )
-
-        serializer = FriendSearchSerializer(
-            users,
-            many=True,
-        )
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
         )

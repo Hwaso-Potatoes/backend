@@ -22,7 +22,10 @@ class RegisterView(APIView):
     @extend_schema(
         tags=["인증"],
         summary="회원가입",
-        description="새로운 사용자를 등록하고 JWT 토큰을 발급합니다.",
+        description=(
+            "새로운 사용자를 등록하고 JWT 토큰을 발급합니다. "
+            "메일로 받은 6자리 code를 바로 보내거나(권장), register/email/verify에서 받은 verification_token을 보냅니다."
+        ),
         request=RegisterSerializer,
         responses={
             201: inline_serializer(

@@ -1,7 +1,3 @@
-from rest_framework import serializers
-from .models import Pet, PERSONALITY_CHOICES
-
-
 from django.db import transaction
 from rest_framework import serializers
 
@@ -77,6 +73,26 @@ class PetSerializer(serializers.ModelSerializer):
 
         return Pet.objects.create(
             **validated_data
+        )
+
+    # 내 정보 수정 화면 — 반려인 이름도 한 번에 저장
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        nickname = validated_data.pop(
+            "nickname",
+            None,
+        )
+
+        if nickname is not None:
+            user = instance.user
+            user.nickname = nickname
+            user.save(
+                update_fields=["nickname", "updated_at"]
+            )
+
+        return super().update(
+            instance,
+            validated_data,
         )
 
 class PetGrowthSerializer(serializers.ModelSerializer):

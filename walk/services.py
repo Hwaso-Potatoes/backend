@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.utils import timezone
 from geopy.distance import geodesic
 
@@ -30,8 +31,16 @@ COUNT_GAP_DISTANCE = False # 공백 후 재기준점 잡을 때 그 사이 거�
 
 
 def get_last_path(session):
-    # 같은 배치(bulk_create)는 timestamp가 동일하므로 id로 순서 보장
-    return session.paths.order_by('-timestamp', '-id').first()
+    return session.paths.order_by('-recorded_at', '-id').first()
+
+
+def _clamp_time(recorded_at, session, now):
+    """기기 시계 오차 보정: [산책 시작, 현재] 범위로 맞춤. 미전송이면 현재 시각"""
+    if recorded_at is None or recorded_at > now:
+        return now
+    if recorded_at < session.start_time:
+        return session.start_time
+    return recorded_at
 
 
 def _is_plausible_move(dist_km, elapsed_seconds):
@@ -45,42 +54,56 @@ def append_locations(session, locations):
     """
     검증된 좌표 목록을 경로에 추가하고 누적 거리를 갱신.
     호출부에서 transaction.atomic + select_for_update로 session을 잠근 상태여야 함.
-    반환값: 실제 저장된 WalkingPath 리스트
+    반환값: 실제 저장된 WalkingPath 리스트 (측정 시각순)
     """
-    last_path = get_last_path(session)
-    last_coords = (float(last_path.latitude), float(last_path.longitude)) if last_path else None
-    elapsed_since_last = (
-        (timezone.now() - last_path.timestamp).total_seconds() if last_path else 0
+    now = timezone.now()
+
+    # 측정 시각 보정 후 시간순 정렬 (배치 안 순서가 섞여 와도 거리 계산이 맞도록)
+    points = sorted(
+        (
+            {**loc, 'recorded_at': _clamp_time(loc.get('recorded_at'), session, now)}
+            for loc in locations
+        ),
+        key=lambda p: p['recorded_at'],
     )
+
+    last_path = get_last_path(session)
+    if last_path:
+        anchor_coords = (float(last_path.latitude), float(last_path.longitude))
+        anchor_time = last_path.recorded_at or last_path.timestamp
+    else:
+        anchor_coords = None
+        anchor_time = None
 
     created_paths = []
     added_distance_km = 0.0
 
-    for i, loc in enumerate(locations):
-        current_coords = (float(loc['latitude']), float(loc['longitude']))
+    for p in points:
+        current_coords = (float(p['latitude']), float(p['longitude']))
 
-        if last_coords:
-            dist_km = geodesic(last_coords, current_coords).km
+        if anchor_coords:
+            dist_km = geodesic(anchor_coords, current_coords).km
 
             if dist_km > MAX_JUMP_KM:
-                # 배치의 첫 점만 '마지막 저장 시각' 기준으로 실제 이동 여부 판단
-                # (백그라운드 공백 / 일시정지 후 재개 등)
-                if i == 0 and _is_plausible_move(dist_km, elapsed_since_last):
+                elapsed = (p['recorded_at'] - anchor_time).total_seconds()
+                if _is_plausible_move(dist_km, elapsed):
+                    # 실제 이동(백그라운드 공백, 일시정지 후 재개 등) → 새 기준점
                     if COUNT_GAP_DISTANCE:
                         added_distance_km += dist_km
-                    last_coords = current_coords   # 새 기준점
+                    anchor_coords, anchor_time = current_coords, p['recorded_at']
                 else:
-                    continue                       # GPS 튐으로 판단, 버림
+                    continue    # GPS 튐으로 판단, 버림
             elif dist_km >= MIN_MOVE_KM:
                 added_distance_km += dist_km
-                last_coords = current_coords
+                anchor_coords, anchor_time = current_coords, p['recorded_at']
         else:
-            last_coords = current_coords
+            anchor_coords, anchor_time = current_coords, p['recorded_at']
 
         created_paths.append(WalkingPath(
             session=session,
-            latitude=loc['latitude'],
-            longitude=loc['longitude'],
+            latitude=p['latitude'],
+            longitude=p['longitude'],
+            recorded_at=p['recorded_at'],
         ))
 
     if created_paths:
@@ -91,3 +114,24 @@ def append_locations(session, locations):
         session.save(update_fields=['total_distance'])
 
     return created_paths
+
+
+# ─────────────────────────────────────────────
+# 친구 정보 (근처 친구 목록 / 친구 알림용)
+# ─────────────────────────────────────────────
+def get_friend_ids(user_id):
+    """수락된 친구들의 user id 집합 (요청 방향 무관)"""
+    from friends.models import Friend
+
+    rows = Friend.objects.filter(status=Friend.Status.ACCEPTED).filter(
+        Q(requester_id=user_id) | Q(receiver_id=user_id)
+    ).values_list('requester_id', 'receiver_id')
+    return {rec if req == user_id else req for req, rec in rows}
+
+
+def get_walker_profile(session):
+    """친구 목록에 보여줄 산책자 정보"""
+    return {
+        "nickname": getattr(session.user, 'nickname', None),
+        "pet_name": session.pet.name if session.pet else None,
+    }

@@ -39,6 +39,12 @@ class WalkingSession(models.Model):
     # 실시간 위치 공유 여부 (이번 산책 세션 기준)
     is_location_shared = models.BooleanField(default=False)
 
+    # 위치 유형 판정 결과 (산책 종료 후 백그라운드에서 채워짐. None = 판정 전/판정 불가)
+    is_forest_walk = models.BooleanField(null=True, blank=True)
+    is_city_walk = models.BooleanField(null=True, blank=True)
+    is_new_area = models.BooleanField(null=True, blank=True)
+    classified_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ['-start_time']
         indexes = [
@@ -90,14 +96,44 @@ class WalkingPath(models.Model):
 
 
 class WalkPreference(models.Model):
-    """산책 관련 사용자 설정 (알림설정 화면의 '산책 시 위치 공유')"""
+    """산책 관련 사용자 설정"""
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='walk_preference'
     )
+    # 알림설정 화면의 '산책 시 위치 공유'
     share_location_on_walk = models.BooleanField(default=False)
+    # 근처 친구 목록 반경 (km) — 사용자가 변경 가능, 기본 5km
+    nearby_radius_km = models.FloatField(default=5.0)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.user} - 위치 공유 {'ON' if self.share_location_on_walk else 'OFF'}"
+
+
+class GreenAreaTile(models.Model):
+    """OSM 숲·공원 영역 캐시 (약 5km 타일 단위로 한 번만 외부 조회)"""
+    key = models.CharField(max_length=32, unique=True)
+    polygons = models.JSONField(default=list)   # [[ [lng, lat], ... ], ...]
+    is_ok = models.BooleanField(default=True)   # False = 조회 실패 (일정 시간 후 재시도)
+    fetched_at = models.DateTimeField()
+
+    def __str__(self):
+        return f"Tile {self.key} ({len(self.polygons)} areas)"
+
+
+class VisitedCell(models.Model):
+    """사용자가 산책으로 지나간 약 200m 격자 칸 (새로운 지역 판정용)"""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='visited_cells'
+    )
+    cell_key = models.CharField(max_length=32)
+    first_visited_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'cell_key'], name='unique_user_visited_cell'),
+        ]

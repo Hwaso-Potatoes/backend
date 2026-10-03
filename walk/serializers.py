@@ -63,9 +63,13 @@ class WalkingSessionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'user', 'pet', 'status', 'is_location_shared',
             'start_time', 'end_time', 'total_distance', 'total_duration',
-            'total_paused_seconds', 'paused_time_str', 'total_duration_str'
+            'total_paused_seconds', 'paused_time_str', 'total_duration_str',
+            'is_forest_walk', 'is_city_walk', 'is_new_area',
         ]
-        read_only_fields = ['id', 'user', 'start_time', 'end_time', 'total_duration']
+        read_only_fields = [
+            'id', 'user', 'start_time', 'end_time', 'total_duration',
+            'is_forest_walk', 'is_city_walk', 'is_new_area',
+        ]
 
     def _format_seconds(self, total_seconds):
         """초(seconds)를 'X시간 Y분 Z초' 형식 문자열로 변환"""

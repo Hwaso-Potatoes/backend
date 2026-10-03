@@ -5,6 +5,8 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db import transaction
 
+from walk.geo import classify_walk_in_background
+
 from .models import WalkingSession, WalkPreference
 from .serializers import (
     WalkingSessionSerializer,
@@ -16,14 +18,7 @@ from .signals import send_walk_finished
 
 from pets.services import add_experience
 from missions.services.mission import update_walk_missions
-from missions.services.badge import (
-    check_first_walk_badge,
-    check_total_distance_badges,
-    check_total_duration_badges,
-    check_daily_walk_count_badges,
-    check_consecutive_days_badges,
-    check_level_badges,
-)
+from missions.services.badge import check_level_badges, check_walk_badges
 
 
 # ─────────────────────────────────────────────
@@ -269,26 +264,30 @@ class WalkEndView(APIView):
         earned_experience = calculate_walk_experience(session.total_distance)
 
         if session.pet:
-            previous_level = session.pet.level
-
-            add_experience(
+            pet = add_experience(
                 pet=session.pet,
                 amount=earned_experience,
             )
 
-            if session.pet.level > previous_level:
-                check_level_badges(pet=session.pet)
+            # 산책 종료 후 현재 레벨/뱃지 확인
+            check_level_badges(
+                pet
+            )
 
-            check_first_walk_badge(pet=session.pet)
-            check_total_distance_badges(pet=session.pet)
-            check_total_duration_badges(pet=session.pet)
-            check_daily_walk_count_badges(pet=session.pet)
-            check_consecutive_days_badges(pet=session.pet)
+            check_walk_badges(
+                pet=pet,
+                session=session,
+            )
 
         update_walk_missions(session)
 
         # 산책 종료 신호 발송 (출석 처리 등) — DB 커밋 후 실행
         transaction.on_commit(lambda: send_walk_finished(session, is_first_walk_today))
+        transaction.on_commit(
+            lambda: classify_walk_in_background(
+                session.id
+            )
+)
 
         serializer = WalkingSessionSerializer(session)
         return Response({

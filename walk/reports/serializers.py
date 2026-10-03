@@ -1,68 +1,94 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 
-class ReportPeriodQuerySerializer(serializers.Serializer):
-    class Period:
-        DAY = "DAY"
-        WEEK = "WEEK"
-        MONTH = "MONTH"
-        SIX_MONTHS = "SIX_MONTHS"
-        YEAR = "YEAR"
+class ReportPeriod:
+    DAY = "DAY"
+    MONTH = "MONTH"
+    YEAR = "YEAR"
 
-        CHOICES = [
-            (DAY, "1일"),
-            (WEEK, "1주"),
-            (MONTH, "1개월"),
-            (SIX_MONTHS, "6개월"),
-            (YEAR, "1년"),
-        ]
+    CHOICES = [
+        (DAY, "하루"),
+        (MONTH, "월간"),
+        (YEAR, "연간"),
+    ]
 
+
+class ComparisonType:
+    RECENT_AVERAGE = "RECENT_AVERAGE"
+    PREVIOUS_MONTH = "PREVIOUS_MONTH"
+    PREVIOUS_YEAR = "PREVIOUS_YEAR"
+
+    CHOICES = [
+        (RECENT_AVERAGE, "최근 평균"),
+        (PREVIOUS_MONTH, "지난달"),
+        (PREVIOUS_YEAR, "작년"),
+    ]
+
+
+class ReportQuerySerializer(serializers.Serializer):
     period = serializers.ChoiceField(
-        choices=Period.CHOICES,
-        default=Period.WEEK,
+        choices=ReportPeriod.CHOICES,
+        default=ReportPeriod.DAY,
+    )
+    date = serializers.DateField(
+        required=False,
+        default=timezone.localdate,
+    )
+
+    def validate_date(self, value):
+        if value > timezone.localdate():
+            raise serializers.ValidationError("미래 날짜의 리포트는 조회할 수 없습니다.")
+
+        return value
+
+
+class DistanceComparisonSerializer(serializers.Serializer):
+    current_distance_km = serializers.FloatField()
+    baseline_distance_km = serializers.FloatField()
+    difference_km = serializers.FloatField()
+
+    baseline_type = serializers.ChoiceField(
+        choices=ComparisonType.CHOICES,
     )
 
 
-class ReportSummarySerializer(serializers.Serializer):
-    total_walk_count = serializers.IntegerField()
-    total_distance_km = serializers.FloatField()
-    total_duration_minutes = serializers.IntegerField()
-    average_distance_km = serializers.FloatField()
-    average_duration_minutes = serializers.FloatField()
-
-
-class ReportChartItemSerializer(serializers.Serializer):
+class TrendItemSerializer(serializers.Serializer):
+    key = serializers.IntegerField()
     label = serializers.CharField()
     distance_km = serializers.FloatField()
-    duration_minutes = serializers.IntegerField()
-    walk_count = serializers.IntegerField()
 
 
-class PetHistoryItemSerializer(serializers.Serializer):
-    before_level = serializers.IntegerField()
-    after_level = serializers.IntegerField()
-    created_at = serializers.DateTimeField()
+class TrendSerializer(serializers.Serializer):
+    current = TrendItemSerializer(many=True)
+    comparison = TrendItemSerializer(many=True)
 
 
-class GrowthReportSerializer(serializers.Serializer):
-    level_up_count = serializers.IntegerField()
-    histories = PetHistoryItemSerializer(many=True)
+class HighlightItemSerializer(serializers.Serializer):
+    key = serializers.CharField()
+    label = serializers.CharField()
+    distance_km = serializers.FloatField()
 
-class EarnedBadgeSerializer(serializers.Serializer):
-    badge_id = serializers.IntegerField()
-    name = serializers.CharField()
-    acquired_at = serializers.DateTimeField()
+
+class HighlightSerializer(serializers.Serializer):
+    top_label = serializers.CharField(
+        allow_null=True,
+    )
+    top_distance_km = serializers.FloatField()
+    items = HighlightItemSerializer(many=True)
 
 
 class PetWalkReportSerializer(serializers.Serializer):
     pet_id = serializers.IntegerField()
+
     period = serializers.ChoiceField(
-        choices=ReportPeriodQuerySerializer.Period.CHOICES
+        choices=ReportPeriod.CHOICES,
     )
+
+    date = serializers.DateField()
     start_date = serializers.DateField()
     end_date = serializers.DateField()
 
-    summary = ReportSummarySerializer()
-    chart = ReportChartItemSerializer(many=True)
-    growth = GrowthReportSerializer()
-    earned_badges = EarnedBadgeSerializer(many=True)
+    comparison = DistanceComparisonSerializer()
+    trend = TrendSerializer()
+    highlight = HighlightSerializer()

@@ -1,13 +1,16 @@
 from django.urls import path
 
-from .views import FriendDeleteView, FriendRequestAcceptView, FriendRequestRejectView, FriendView, ReceivedFriendRequestView, FriendSearchView
+from .views import (
+    FriendDeleteView,
+    FriendListView,
+    FriendQRCreateView,
+    FriendQRRedeemView,
+)
 
 
 urlpatterns = [
-    path("", FriendView.as_view(), name="friend"),
-    path("requests/", ReceivedFriendRequestView.as_view(), name="friend-request-received"),
-    path("requests/<int:request_id>/accept/", FriendRequestAcceptView.as_view(), name="friend-request-accept"),
-    path("requests/<int:request_id>/reject/", FriendRequestRejectView.as_view(), name="friend-request-reject"),
-    path("<int:friend_id>/", FriendDeleteView.as_view(), name="friend-delete"),
-    path("search/", FriendSearchView.as_view(), name="friend-search"),
+    path( "", FriendListView.as_view(), name="friend-list"),
+    path("qr/", FriendQRCreateView.as_view(), name="friend-qr-create"),
+    path("qr/redeem/", FriendQRRedeemView.as_view(), name="friend-qr-redeem"),
+    path( "<int:friend_id>/", FriendDeleteView.as_view(), name="friend-delete"),
 ]

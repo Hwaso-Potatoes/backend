@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "friends",
     "missions",
     "walk",
+    "attendance",
 ]
 
 MIDDLEWARE = [

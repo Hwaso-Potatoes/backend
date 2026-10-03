@@ -70,11 +70,47 @@ class User(AbstractUser):
     def __str__(self):
         return self.email
 
+
+class SocialAccount(models.Model):
+    """소셜 계정 연동 (환경설정 > SNS 계정 연동)"""
+
+    class Provider(models.TextChoices):
+        GOOGLE = "google", "Google"
+        APPLE = "apple", "Apple"
+        KAKAO = "kakao", "Kakao"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="social_accounts",
+    )
+    provider = models.CharField(max_length=10, choices=Provider.choices)
+    uid = models.CharField(max_length=255)          # 소셜 측 사용자 고유 ID
+    email = models.EmailField(blank=True)           # 소셜 계정 이메일 (참고용)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["provider", "uid"], name="unique_social_provider_uid"),
+            models.UniqueConstraint(fields=["user", "provider"], name="unique_social_user_provider"),
+        ]
+
+    def __str__(self):
+        return f"{self.user} ({self.provider})"
+
+    @classmethod
+    def linked_status(cls, user):
+        """{"google": bool, "apple": bool, "kakao": bool}"""
+        linked = set(cls.objects.filter(user=user).values_list("provider", flat=True))
+        return {provider: provider in linked for provider in cls.Provider.values}
+
+
 class EmailVerification(models.Model):
     """이메일 인증번호 (이메일 변경 등에 사용)"""
 
     class Purpose(models.TextChoices):
         EMAIL_CHANGE = "email_change", "이메일 변경"
+        PASSWORD_RESET = "password_reset", "비밀번호 재설정"
 
     CODE_TTL_MINUTES = 5           # 코드 유효시간
     RESEND_COOLDOWN_SECONDS = 60   # 재발송 쿨다운

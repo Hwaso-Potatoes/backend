@@ -13,6 +13,7 @@ from .views import (
     RegisterEmailRequestView,
     RegisterEmailVerifyView,
     RegisterView,
+    SocialLinkView,
     SocialLoginView,
 )
 
@@ -25,6 +26,7 @@ urlpatterns = [
     path("token/refresh/", RefreshView.as_view(), name="refresh"),
     path("logout/", LogoutView.as_view(), name="logout"),
     path("social/<str:provider>/", SocialLoginView.as_view(), name="social-login"),
+    path("social/<str:provider>/link/", SocialLinkView.as_view(), name="social-link"),
 
     path("<int:user_id>/", DetailView.as_view(), name="detail"),
 

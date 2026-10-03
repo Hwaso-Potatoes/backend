@@ -32,7 +32,12 @@ class PetListCreateView(generics.ListCreateAPIView):
 
 @extend_schema_view(
     get=extend_schema(summary="반려견 상세 조회", tags=["pets"]),
-    patch=extend_schema(summary="반려견 수정", responses={204: None}, tags=["pets"]),
+    patch=extend_schema(
+        summary="반려견 수정",
+        description="내 정보 수정 화면용. nickname(반려인 이름)을 함께 보내면 사용자 닉네임도 같이 수정됩니다.",
+        responses={204: None},
+        tags=["pets"],
+    ),
     delete=extend_schema(summary="반려견 삭제", tags=["pets"]),
 )
 class PetDetailView(generics.RetrieveUpdateDestroyAPIView):

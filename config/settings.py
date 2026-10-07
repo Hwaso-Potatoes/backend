@@ -224,7 +224,7 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 
 EMAIL_HOST = config(
     "EMAIL_HOST",
-    default="smtp.gmail.com",
+    default="smtp.naver.com",
 )
 
 EMAIL_PORT = config(

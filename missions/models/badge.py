@@ -29,7 +29,11 @@ class Badge(models.Model):
         CITY_WALK = "CITY_WALK", "도시 산책"
 
     name = models.CharField(max_length=100)
-    image = models.ImageField(upload_to="badges/")
+    
+    image = models.ImageField(
+        upload_to="badges/",
+        blank=True,
+    )
 
     description = models.CharField(
         max_length=100,

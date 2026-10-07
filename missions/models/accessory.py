@@ -12,6 +12,7 @@ class Accessory(models.Model):
 
     image = models.ImageField(
         upload_to="accessories/",
+        blank=True,
     )
 
     category = models.CharField(

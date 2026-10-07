@@ -21,7 +21,6 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     verification_token = serializers.CharField(
         write_only=True,
-        required=False,
         trim_whitespace=False,
     )
 
@@ -195,9 +194,12 @@ class RegisterEmailVerifySerializer(serializers.Serializer):
 
     def validate_email(self, value):
         return value.lower().strip()
-
+    
     def validate_code(self, value):
-        return validate_signup_code_format(value)
+        if not value.isdigit():
+            raise serializers.ValidationError("인증번호는 6자리 숫자여야 합니다.")
+
+        return value
 
 
 # 비밀번호 재설정 요청(비로그인시)

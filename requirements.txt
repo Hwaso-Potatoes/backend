@@ -48,3 +48,4 @@ uritemplate==4.2.0
 urllib3==2.7.0
 zope.interface==8.5
 shapely==2.1.2
+whitenoise==6.12.0

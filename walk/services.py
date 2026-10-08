@@ -3,6 +3,7 @@ from django.utils import timezone
 from geopy.distance import geodesic
 
 from .models import WalkingPath
+from friends.models import Friend
 
 
 # ─────────────────────────────────────────────
@@ -120,13 +121,14 @@ def append_locations(session, locations):
 # 친구 정보 (근처 친구 목록 / 친구 알림용)
 # ─────────────────────────────────────────────
 def get_friend_ids(user_id):
-    """수락된 친구들의 user id 집합 (요청 방향 무관)"""
-    from friends.models import Friend
+    rows = Friend.objects.filter(
+        Q(user1_id=user_id) | Q(user2_id=user_id)
+    ).values_list('user1_id', 'user2_id')
 
-    rows = Friend.objects.filter(status=Friend.Status.ACCEPTED).filter(
-        Q(requester_id=user_id) | Q(receiver_id=user_id)
-    ).values_list('requester_id', 'receiver_id')
-    return {rec if req == user_id else req for req, rec in rows}
+    return {
+        user2_id if user1_id == user_id else user1_id
+        for user1_id, user2_id in rows
+    }
 
 
 def get_walker_profile(session):

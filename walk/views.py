@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db import transaction
 
-from walk.geo import classify_walk_in_background
+from walk.geo import classify_walk
 
 from .models import WalkingSession, WalkPreference
 from .serializers import (
@@ -263,37 +263,64 @@ class WalkEndView(APIView):
 
         earned_experience = calculate_walk_experience(session.total_distance)
 
+        # 숲 / 도시 / 새로운 지역 판정을 먼저 완료
+        classify_walk(session.id)
+
+        session.refresh_from_db(
+            fields=[
+                'is_forest_walk',
+                'is_city_walk',
+                'is_new_area',
+                'classified_at',
+            ]
+        )
+
+        acquired_badges = []
+
         if session.pet:
             pet = add_experience(
                 pet=session.pet,
                 amount=earned_experience,
             )
 
-            # 산책 종료 후 현재 레벨/뱃지 확인
-            check_level_badges(
+            level_badges = check_level_badges(
                 pet
-            )
+            ) or []
 
-            check_walk_badges(
+            walk_badges = check_walk_badges(
                 pet=pet,
                 session=session,
-            )
+            ) or []
+
+            acquired_badges.extend(level_badges)
+            acquired_badges.extend(walk_badges)
+
+        acquired_badge_data = [
+            {
+                "id": pet_badge.badge.id,
+                "name": pet_badge.badge.name,
+                "description": pet_badge.badge.description,
+                "acquired_at": pet_badge.acquired_at,
+            }
+            for pet_badge in acquired_badges
+        ]
 
         update_walk_missions(session)
 
         # 산책 종료 신호 발송 (출석 처리 등) — DB 커밋 후 실행
-        transaction.on_commit(lambda: send_walk_finished(session, is_first_walk_today))
         transaction.on_commit(
-            lambda: classify_walk_in_background(
-                session.id
+            lambda: send_walk_finished(
+                session,
+                is_first_walk_today
             )
-)
+        )
 
         serializer = WalkingSessionSerializer(session)
         return Response({
             "message": "산책이 성공적으로 종료되었습니다.",
             "earned_experience": earned_experience,
             "is_first_walk_today": is_first_walk_today,
+            "acquired_badges": acquired_badge_data,
             "data": serializer.data
         }, status=status.HTTP_200_OK)
 

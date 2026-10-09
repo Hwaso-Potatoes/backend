@@ -187,12 +187,12 @@ def check_level_badges(pet):
     )
 
 
-# 비/눈 산책 뱃지: WalkingSession에 산책 당시 날씨 정보가 저장되면 구현
+# 비/눈 산책 뱃지
 def check_weather_badges(*, pet, session):
     return []
 
 
-# 새로운 지역/숲/도시 산책 뱃지: 산책 경로의 지역 및 환경 타입을 판단할 수 있게 되면 구현
+# 새로운 지역/숲/도시 산책 뱃지
 def check_location_badges(*, pet, session):
     acquired_badges = []
 
@@ -269,7 +269,13 @@ def check_walk_badges(*, pet, session):
         )
     )
 
-    # 지급 로직 미구현
+    acquired_badges.extend(
+        check_location_badges(
+            pet=pet,
+            session=session,
+        )
+    )
+
     acquired_badges.extend(
         check_weather_badges(
             pet=pet,
@@ -278,7 +284,6 @@ def check_walk_badges(*, pet, session):
     )
 
     return acquired_badges
-
 
 # 첫 친구/호감도 친구 뱃지
 def check_friend_badges(*, pet):

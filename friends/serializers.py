@@ -27,12 +27,15 @@ class FriendListSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    is_walking = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = (
             "id",
             "nickname",
             "pets",
+            "is_walking",
         )
         read_only_fields = fields
 

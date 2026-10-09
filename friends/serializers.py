@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from pets.models import Pet
+from walk.models import WalkingSession
 
 
 User = get_user_model()
@@ -34,6 +35,15 @@ class FriendListSerializer(serializers.ModelSerializer):
             "pets",
         )
         read_only_fields = fields
+
+    def get_is_walking(self, obj):
+        if hasattr(obj, "is_walking"):
+            return obj.is_walking
+
+        return WalkingSession.objects.filter(
+            user=obj,
+            status__in=["WALKING", "PAUSED"],
+        ).exists()
 
 
 # QR invite token 생성 응답

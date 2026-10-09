@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.postgres.search import TrigramSimilarity
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.shortcuts import get_object_or_404
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -12,6 +12,7 @@ from rest_framework import generics, permissions
 
 
 from .models import Friend
+from walk.models import WalkingSession
 from .serializers import (
     FriendListSerializer,
     FriendQRCreateResultSerializer,
@@ -56,6 +57,11 @@ class FriendListView(generics.ListAPIView):
         return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
+        active_walks = WalkingSession.objects.filter(
+            user_id=OuterRef("pk"),
+            status__in=["WALKING", "PAUSED"],
+        )
+
         queryset = (
             User.objects
             .filter(
@@ -66,6 +72,9 @@ class FriendListView(generics.ListAPIView):
                     friendships_as_user2__user1=self.request.user,
                 ),
                 is_active=True,
+            )
+            .annotate(
+                is_walking=Exists(active_walks),
             )
             .prefetch_related("pets")
             .distinct()

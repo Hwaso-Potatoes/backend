@@ -1,5 +1,7 @@
 from django.db import transaction
 
+from notifications.services import send_push_notification
+
 from .models import Pet, PetHistory
 
 
@@ -24,9 +26,14 @@ def add_experience(pet, amount):
 
     level_up_histories = []
 
-    while (pet.experience>= get_required_experience(pet.level)):
+    while (
+        pet.experience
+        >= get_required_experience(pet.level)
+    ):
         required_experience = (
-            get_required_experience(pet.level)
+            get_required_experience(
+                pet.level
+            )
         )
 
         pet.experience -= required_experience
@@ -53,6 +60,28 @@ def add_experience(pet, amount):
     if level_up_histories:
         PetHistory.objects.bulk_create(
             level_up_histories
+        )
+
+        pet_name = pet.name
+        pet_id = pet.id
+        final_level = pet.level
+        user = pet.user
+
+        transaction.on_commit(
+            lambda: send_push_notification(
+                user=user,
+                notification_type="level_badge",
+                title="레벨업",
+                body=(
+                    f"{pet_name}이(가) "
+                    f"Lv.{final_level}이 되었어요!"
+                ),
+                data={
+                    "type": "level_up",
+                    "pet_id": pet_id,
+                    "level": final_level,
+                },
+            )
         )
 
     return pet

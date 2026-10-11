@@ -12,6 +12,8 @@ from .models import (
     AttendanceRewardDay,
 )
 
+from notifications.services import send_push_notification
+
 
 @transaction.atomic
 def grant_random_unowned_accessory(*, attendance):
@@ -78,6 +80,29 @@ def grant_random_unowned_accessory(*, attendance):
     reward = AttendanceReward.objects.create(
         attendance=attendance,
         accessory=accessory,
+    )
+
+    pet_name = pet.name
+    pet_id = pet.id
+    user = pet.user
+    accessory_name = accessory.name
+    accessory_id = accessory.id
+
+    transaction.on_commit(
+        lambda: send_push_notification(
+            user=user,
+            notification_type="accessory",
+            title="새로운 액세서리가 도착했어요!",
+            body=(
+                f"{pet_name}이(가) "
+                f"'{accessory_name}' 액세서리를 획득했어요."
+            ),
+            data={
+                "type": "accessory",
+                "pet_id": pet_id,
+                "accessory_id": accessory_id,
+            },
+        )
     )
 
     return reward

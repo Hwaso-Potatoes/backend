@@ -1,7 +1,9 @@
 from django.db.models import Sum
 from django.utils import timezone
+from django.db import transaction
 
 from missions.models import Badge, PetBadge
+from notifications.services import send_push_notification
 
 
 # 뱃지 지급
@@ -12,6 +14,24 @@ def grant_badge(*, pet, badge):
             badge=badge,
         )
     )
+
+    if created:
+        transaction.on_commit(
+            lambda: send_push_notification(
+                user=pet.user,
+                notification_type="level_badge",
+                title="새로운 뱃지를 획득했어요!",
+                body=(
+                    f"{pet.name}이(가) "
+                    f"'{badge.name}' 뱃지를 획득했어요."
+                ),
+                data={
+                    "type": "badge",
+                    "pet_id": pet.id,
+                    "badge_id": badge.id,
+                },
+            )
+        )
 
     return pet_badge, created
 

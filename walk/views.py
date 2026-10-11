@@ -20,6 +20,15 @@ from pets.services import add_experience
 from missions.services.mission import update_walk_missions
 from missions.services.badge import check_level_badges, check_walk_badges
 
+from django.contrib.auth import get_user_model
+from django.db.models import Q
+
+from friends.models import Friend
+from notifications.services import send_push_notification
+
+
+User = get_user_model()
+
 
 # ─────────────────────────────────────────────
 # 공통 유틸
@@ -102,6 +111,53 @@ class WalkStartView(APIView):
             is_location_shared=get_default_share_setting(request.user)
         )
         # 시작 시점엔 좌표가 없으므로 브로드캐스트 없음 (첫 위치 저장 때 전송됨)
+
+        # 산책 시작 알림
+        friends = (
+            User.objects
+            .filter(
+                Q(
+                    friendships_as_user1__user2=request.user,
+                )
+                | Q(
+                    friendships_as_user2__user1=request.user,
+                ),
+                is_active=True,
+            )
+            .distinct()
+        )
+
+        nickname = request.user.nickname or "친구"
+
+        if user_pet:
+            body = (
+                f"{nickname}님과 "
+                f"{user_pet.name}의 산책이 시작됐어요!"
+            )
+        else:
+            body = (
+                f"{nickname}님이 산책을 시작했어요!"
+            )
+
+        for friend in friends:
+            transaction.on_commit(
+                lambda friend=friend: send_push_notification(
+                    user=friend,
+                    notification_type="friend_walk",
+                    title="친구가 산책을 시작했어요!",
+                    body=body,
+                    data={
+                        "type": "friend_walk",
+                        "friend_id": request.user.id,
+                        "pet_id": (
+                            user_pet.id
+                            if user_pet
+                            else ""
+                        ),
+                        "walk_id": session.id,
+                    },
+                )
+            )
 
         serializer = WalkingSessionSerializer(session)
         return Response({

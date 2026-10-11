@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.postgres.search import TrigramSimilarity
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef, Prefetch, Q, Subquery
 from django.shortcuts import get_object_or_404
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -12,6 +12,8 @@ from rest_framework import generics, permissions
 
 
 from .models import Friend
+from pets.models import Pet
+from missions.models import PetAccessory
 from walk.models import WalkingSession
 from .serializers import (
     FriendListSerializer,
@@ -57,9 +59,66 @@ class FriendListView(generics.ListAPIView):
         return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
+        # 현재 이 반려견이 진행 중인 산책이 있는지
         active_walks = WalkingSession.objects.filter(
-            user_id=OuterRef("pk"),
-            status__in=["WALKING", "PAUSED"],
+            pet_id=OuterRef("pk"),
+            status__in=[
+                "WALKING",
+                "PAUSED",
+            ],
+        )
+
+        # 가장 최근 산책
+        recent_walk = (
+            WalkingSession.objects
+            .filter(
+                pet_id=OuterRef("pk"),
+            )
+            .order_by(
+                "-start_time",
+                "-id",
+            )
+        )
+
+        # 착용 중인 액세서리 조회
+        equipped_accessories = (
+            PetAccessory.objects
+            .filter(
+                is_equipped=True,
+            )
+            .select_related("accessory")
+        )
+
+        # 반려견 조회
+        pets = (
+            Pet.objects
+            .annotate(
+                is_walking=Exists(
+                    active_walks
+                ),
+                recent_walk_status=Subquery(
+                    recent_walk.values(
+                        "status"
+                    )[:1]
+                ),
+                recent_walk_start_time=Subquery(
+                    recent_walk.values(
+                        "start_time"
+                    )[:1]
+                ),
+                recent_walk_end_time=Subquery(
+                    recent_walk.values(
+                        "end_time"
+                    )[:1]
+                ),
+            )
+            .prefetch_related(
+                Prefetch(
+                    "pet_accessories",
+                    queryset=equipped_accessories,
+                    to_attr="equipped_accessories",
+                )
+            )
         )
 
         queryset = (
@@ -73,10 +132,12 @@ class FriendListView(generics.ListAPIView):
                 ),
                 is_active=True,
             )
-            .annotate(
-                is_walking=Exists(active_walks),
+            .prefetch_related(
+                Prefetch(
+                    "pets",
+                    queryset=pets,
+                )
             )
-            .prefetch_related("pets")
             .distinct()
         )
 
@@ -86,7 +147,9 @@ class FriendListView(generics.ListAPIView):
         ).strip()
 
         if not nickname:
-            return queryset.order_by("nickname")
+            return queryset.order_by(
+                "nickname"
+            )
 
         return (
             queryset
@@ -97,8 +160,12 @@ class FriendListView(generics.ListAPIView):
                 )
             )
             .filter(
-                Q(nickname__icontains=nickname)
-                | Q(similarity__gte=0.2)
+                Q(
+                    nickname__icontains=nickname
+                )
+                | Q(
+                    similarity__gte=0.2
+                )
             )
             .order_by(
                 "-similarity",

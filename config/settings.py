@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "missions",
     "walk",
     "attendance",
+    "notifications",
 ]
 
 MIDDLEWARE = [
@@ -214,6 +215,11 @@ CHANNEL_LAYERS = {
         },
     },
 }
+
+FIREBASE_SERVICE_ACCOUNT_JSON = config(
+    "FIREBASE_SERVICE_ACCOUNT_JSON",
+    default="",
+)
 
 AUTH_REDIS_URL = config(
     "AUTH_REDIS_URL",

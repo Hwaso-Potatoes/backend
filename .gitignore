@@ -23,3 +23,4 @@ venv/
 .idea/
 
 walk-guide-firebase-adminsdk-fbsvc-c09222974c.json
+.env.render

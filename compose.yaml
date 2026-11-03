@@ -1,0 +1,53 @@
+services:
+  web:
+    build:
+      context: .
+    image: hwaso-potatoes-backend:dev
+    container_name: hwaso-potatoes-web
+
+    env_file:
+      - .env
+
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+
+    expose:
+      - "8000"
+
+    volumes:
+      - .:/app
+
+  db:
+    image: postgres:16
+    container_name: hwaso-potatoes-db
+
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+    ports:
+      - "127.0.0.1:5433:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: hwaso-potatoes-redis
+
+  nginx:
+    image: nginx:alpine
+    container_name: hwaso-potatoes-nginx
+
+    ports:
+      - "80:80"
+
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./staticfiles:/static:ro
+
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
